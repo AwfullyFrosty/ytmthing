@@ -1,18 +1,18 @@
 {
-  "label": "ytmdthing",
-  "tags": [],
+  "label": "YTMThing",
+  "tags": ["music", "youtube", "controller"],
   "requires": [],
-  "version": "0.11.4",
+  "version": "1.0.0",
   "requiredVersions": {
     "server": ">=0.0.0",
     "client": ">=0.11.2"
   },
-  "description": "None",
-  "author": "Unknown",
-  "platforms": [],
-  "repository": "",
-  "homepage": "",
-  "updateUrl": "",
+  "description": "YouTube Music controller for DeskThing with smart artwork loading and comprehensive playback controls",
+  "author": "BaileyWatkinsCS",
+  "platforms": ["win32", "darwin", "linux"],
+  "repository": "https://github.com/BaileyWatkinsCS/ytmthing",
+  "homepage": "https://github.com/BaileyWatkinsCS/ytmthing",
+  "updateUrl": "https://github.com/BaileyWatkinsCS/ytmthing/releases",
   "id": "ytmdthing",
   "template": "full"
 }

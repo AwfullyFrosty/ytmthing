@@ -175,16 +175,39 @@ const getYTMAuthToken = async (): Promise<string> => {
         }
     }
 
+    console.log('Requesting authentication code from YTMDesktop...');
+    DeskThingApp.send({ 
+        type: 'YTM_AUTH_STATUS', 
+        payload: { status: 'requesting_code', message: 'Requesting auth code...' } 
+    });
+
     const codeRes = await axios.post('http://127.0.0.1:9863/api/v1/auth/requestcode', {
         appId: APP_ID,
         appName: APP_NAME,
-        appVersion: '0.1.0',
+        appVersion: '1.0.0',
     });
     const code = codeRes.data.code;
     console.log(`YTMDesktop Auth Code: ${code}`);
     console.log('Please approve this code in the YTMDesktop app to continue.');
+    
+    // Send auth code to DeskThing display
+    DeskThingApp.send({ 
+        type: 'YTM_AUTH_STATUS', 
+        payload: { 
+            status: 'code_generated', 
+            code: code,
+            message: `Auth Code: ${code}\nApprove in YTMDesktop on your PC` 
+        } 
+    });
 
-    await new Promise(resolve => setTimeout(resolve, 5000));
+    // Wait longer for user to approve
+    await new Promise(resolve => setTimeout(resolve, 15000));
+
+    console.log('Requesting token with approved code...');
+    DeskThingApp.send({ 
+        type: 'YTM_AUTH_STATUS', 
+        payload: { status: 'requesting_token', message: 'Getting auth token...' } 
+    });
 
     const tokenRes = await axios.post('http://127.0.0.1:9863/api/v1/auth/request', {
         appId: APP_ID,
@@ -200,6 +223,10 @@ const getYTMAuthToken = async (): Promise<string> => {
     }
     
     console.log('YTMDesktop authenticated successfully.');
+    DeskThingApp.send({ 
+        type: 'YTM_AUTH_STATUS', 
+        payload: { status: 'authenticated', message: 'Successfully authenticated!' } 
+    });
     authToken = token;
     return token;
 };

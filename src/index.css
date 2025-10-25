@@ -1,0 +1,43 @@
+button {
+  background: transparent;
+  background-color: transparent;
+
+  border: none;
+}
+
+button:focus {
+  outline: none;
+  border: none;
+}
+
+button:active {
+  outline: none;
+  border: none;
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom utilities for Car Thing display */
+.line-clamp-1 {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
+}
+
+.line-clamp-2 {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+/* Smooth transitions for all interactive elements */
+* {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}

@@ -1,0 +1,18 @@
+{
+  "label": "ytmdthing",
+  "tags": [],
+  "requires": [],
+  "version": "0.11.4",
+  "requiredVersions": {
+    "server": ">=0.0.0",
+    "client": ">=0.11.2"
+  },
+  "description": "None",
+  "author": "Unknown",
+  "platforms": [],
+  "repository": "",
+  "homepage": "",
+  "updateUrl": "",
+  "id": "ytmdthing",
+  "template": "full"
+}

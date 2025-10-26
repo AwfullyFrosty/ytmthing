@@ -80,7 +80,13 @@ const App: React.FC = () => {
                         alt="Album Art"
                         className="w-full h-full object-cover absolute inset-0 z-10"
                         onError={(e) => {
-                            // Retry with smaller sizes to bypass potential rate limiting
+                            // For data URLs (our cached images), just hide on error
+                            if (e.currentTarget.src.startsWith('data:')) {
+                                e.currentTarget.style.display = 'none';
+                                return;
+                            }
+                            
+                            // Retry logic for external URLs only
                             const retryCount = parseInt(e.currentTarget.dataset.retryCount || '0');
                             
                             if (retryCount === 0 && ytmState?.artUrl) {
@@ -96,6 +102,7 @@ const App: React.FC = () => {
                                 e.currentTarget.src = tinyUrl;
                                 return;
                             }
+                            
                             e.currentTarget.style.display = 'none';
                         }}
                         onLoad={(e) => {
@@ -128,6 +135,8 @@ const App: React.FC = () => {
                     <p className="text-lg text-gray-300 mb-4 line-clamp-1">
                         {artist}
                     </p>
+                    
+
                     
                     {/* Status Indicators */}
                     <div className="flex items-center gap-3 mb-6">
@@ -204,6 +213,8 @@ const App: React.FC = () => {
 
             {/* Connection Status Overlay */}
             {connectionStatus}
+            
+
         </div>
     );
 };

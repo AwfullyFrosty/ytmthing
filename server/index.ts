@@ -6,13 +6,29 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { setupSettings } from './setupSettings.js';
+import { saveImage } from './imageUtils.js';
+import crypto from 'crypto';
 
 const APP_ID = 'ytmthing'; 
 const APP_NAME = "ytmthing";
 
-// ES Module equivalents for __filename and __dirname
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// ES Module equivalents for __filename and __dirname (only when not provided by esbuild)
+declare const __filename: string;
+declare const __dirname: string;
+
+// Fallback for development mode
+let actualFilename: string;
+let actualDirname: string;
+
+try {
+    // Use esbuild-provided variables if available (production)
+    actualFilename = __filename;
+    actualDirname = __dirname;
+} catch {
+    // Fallback to ES module equivalents (development)
+    actualFilename = fileURLToPath(import.meta.url);
+    actualDirname = path.dirname(actualFilename);
+}
 
 // Default settings - will be overridden by user settings
 let ytmHost = '127.0.0.1';
@@ -21,12 +37,13 @@ let autoReconnect = true;
 
 const getYTMApiUrl = () => `http://${ytmHost}:${ytmPort}/api/v1/`;
 const getYTMSocketUrl = () => `ws://${ytmHost}:${ytmPort}/api/v1/realtime`;
-const TOKEN_PATH = path.join(__dirname, 'ytm_token.json');
+const TOKEN_PATH = path.join(actualDirname, 'ytm_token.json');
 
 let ytmSocket: Socket | null = null;
 let authToken: string | null = null;
 let currentRepeatMode = 0;
 let currentShuffleState = false;
+let lastTrack = '';
 
 const clearAuthToken = () => {
     authToken = null;
@@ -99,6 +116,14 @@ const setupClientListeners = (): void => {
         executeControl('changeVideo', data || { videoId: 'dQw4w9WgXcQ' }));
 }
 
+// Images directory for DeskThing resource serving - must be in app root, not server subdirectory
+const imagesDir = path.join(actualDirname, '..', 'images');
+
+// Ensure images directory exists
+if (!fs.existsSync(imagesDir)) {
+    fs.mkdirSync(imagesDir, { recursive: true });
+}
+
 
 interface YTMQueueItem {
     title?: string;
@@ -154,6 +179,79 @@ const handleYTMStateUpdate = (state: unknown): void => {
         
         return mediumThumbnail?.url || sorted[0]?.url || '';
     };
+
+    const downloadAndCacheImage = async (url: string): Promise<string> => {
+        try {
+            // Use crypto hash instead of truncated base64 to avoid collisions
+            const urlHash = crypto.createHash('md5').update(url).digest('hex').substring(0, 32);
+            
+            console.log(`[Artwork] Downloading: ${url.substring(0, 60)}...`);
+            const result = await saveImage(url, urlHash);
+            
+            if (result) {
+                console.log(`[Artwork] Downloaded and cached (${urlHash})`);
+                // Read the cached image and convert to base64 data URL
+                try {
+                    const imagePath = path.join(imagesDir, `${urlHash}.jpg`);
+                    const imageBuffer = fs.readFileSync(imagePath);
+                    const base64Data = imageBuffer.toString('base64');
+                    const dataUrl = `data:image/jpeg;base64,${base64Data}`;
+                    return dataUrl;
+                } catch (error) {
+                    console.error(`[Artwork] Failed to read downloaded image: ${error}`);
+                    return '';
+                }
+            } else {
+                console.error(`[Artwork] Failed to save image from URL: ${url}`);
+                return '';
+            }
+            
+        } catch (error) {
+            console.error(`[Artwork] Failed to download image:`, error);
+            return '';
+        }
+    };
+
+    const fixArtworkUrl = async (url: string): Promise<string> => {
+        if (!url) return '';
+        
+        // Replace localhost/127.0.0.1 with the actual YTM host for network accessibility
+        if (url.includes('127.0.0.1') || url.includes('localhost')) {
+            const fixedUrl = url.replace(/(?:127\.0\.0\.1|localhost)/g, ytmHost);
+            console.log(`[Artwork] Fixed localhost URL: ${fixedUrl}`);
+            return fixedUrl;
+        }
+        
+        // For external URLs (YouTube/Google), download and cache them
+        if (url.startsWith('http')) {
+            // Use crypto hash instead of truncated base64 to avoid collisions
+            const urlHash = crypto.createHash('md5').update(url).digest('hex').substring(0, 32);
+            const imagePath = path.join(imagesDir, `${urlHash}.jpg`);
+            
+            console.log(`[Artwork] Processing: ${url.substring(0, 60)}...`);
+            
+            // Check if already cached
+            if (fs.existsSync(imagePath)) {
+                console.log(`[Artwork] Using cached image (${urlHash})`);
+                // Try serving the actual file data as base64 data URL
+                try {
+                    const imageBuffer = fs.readFileSync(imagePath);
+                    const base64Data = imageBuffer.toString('base64');
+                    const dataUrl = `data:image/jpeg;base64,${base64Data}`;
+                    return dataUrl;
+                } catch (error) {
+                    console.error(`[Artwork] Failed to read cached image: ${error}`);
+                    return '';
+                }
+            }
+            
+            console.log(`[Artwork] Image not cached, downloading...`);
+            // Download and cache
+            return await downloadAndCacheImage(url);
+        }
+        
+        return url;
+    };
     let artUrl = '';
     
     if (queueItem.thumbnails && queueItem.thumbnails.length > 0) {
@@ -175,16 +273,39 @@ const handleYTMStateUpdate = (state: unknown): void => {
     const isShuffling = currentShuffleState;
     const ytmRepeatMode = queueExt?.repeatMode ?? 0;
     currentRepeatMode = ytmRepeatMode;
-    const stateUpdate = {
-        isPlaying: s.player?.trackState === 1,
-        isShuffling: isShuffling,
-        isRepeating: ytmRepeatMode > 0,
-        title: queueItem.title || s.video?.title || 'No Track',
-        artist: queueItem.author || s.video?.author || 'No Artist',
-        artUrl,
-    };
+    const currentTrack = `${queueItem.title || s.video?.title || 'No Track'} - ${queueItem.author || s.video?.author || 'No Artist'}`;
     
-    DeskThing.send({ type: 'YTM_STATE_UPDATE', payload: stateUpdate });
+    // Process artwork asynchronously
+    fixArtworkUrl(artUrl).then((finalArtUrl) => {
+        
+        const stateUpdate = {
+            isPlaying: s.player?.trackState === 1,
+            isShuffling: isShuffling,
+            isRepeating: ytmRepeatMode > 0,
+            title: queueItem.title || s.video?.title || 'No Track',
+            artist: queueItem.author || s.video?.author || 'No Artist',
+            artUrl: finalArtUrl,
+        };
+        
+        // Track artwork changes
+        if (currentTrack !== lastTrack) {
+            console.log(`[State Update] ${currentTrack} ${finalArtUrl ? '✅' : '❌'}`);
+            lastTrack = currentTrack;
+        }
+        DeskThing.send({ type: 'YTM_STATE_UPDATE', payload: stateUpdate });
+    }).catch((error) => {
+        console.error('[Artwork] Error processing artwork:', error);
+        // Send update without artwork if there's an error
+        const stateUpdate = {
+            isPlaying: s.player?.trackState === 1,
+            isShuffling: isShuffling,
+            isRepeating: ytmRepeatMode > 0,
+            title: queueItem.title || s.video?.title || 'No Track',
+            artist: queueItem.author || s.video?.author || 'No Artist',
+            artUrl: '',
+        };
+        DeskThing.send({ type: 'YTM_STATE_UPDATE', payload: stateUpdate });
+    });
 }
 
 
@@ -310,7 +431,7 @@ DeskThing.on(DESKTHING_EVENTS.SETTINGS, (settings) => {
 });
 
 const startup = async (): Promise<void> => {
-    console.log('YTMThing Server starting...');
+    console.log('YTMThing Server starting... [Version: 2.0 - Resource Serving]');
     await setupSettings();
     setupClientListeners();
     await connectToYTMDesktopSocketIO();

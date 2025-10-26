@@ -1,13 +1,18 @@
 ﻿import { DeskThing } from '@deskthing/server';
-import { DESKTHING_EVENTS} from '@deskthing/types';
+import { DESKTHING_EVENTS } from '@deskthing/types';
 import axios from 'axios';
 import { io, Socket } from 'socket.io-client';
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { setupSettings } from './setupSettings.js';
 
 const APP_ID = 'ytmthing'; 
 const APP_NAME = "ytmthing";
+
+// ES Module equivalents for __filename and __dirname
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Default settings - will be overridden by user settings
 let ytmHost = '127.0.0.1';

@@ -57,3 +57,6 @@ coverage/
 
 # DeskThing specific
 *.log
+
+# YTMDesktop authentication token
+server/ytm_token.json

@@ -1,25 +1,37 @@
-import { DeskThing } from '@deskthing/server';
+﻿import { DeskThing } from '@deskthing/server';
+import { DESKTHING_EVENTS} from '@deskthing/types';
 import axios from 'axios';
 import { io, Socket } from 'socket.io-client';
 import fs from 'fs';
 import path from 'path';
+import { setupSettings } from './setupSettings.js';
 
-const DeskThingApp = DeskThing; 
-const YTM_API_URL = 'http://127.0.0.1:9863/api/v1/';
 const APP_ID = 'ytmthing'; 
 const APP_NAME = "ytmthing";
 
+// Default settings - will be overridden by user settings
+let ytmHost = '127.0.0.1';
+let ytmPort = 9863;
+let autoReconnect = true;
 
-const YTM_SOCKET_URL = 'ws://127.0.0.1:9863/api/v1/realtime';
-const TOKEN_PATH = path.join(
-    path.dirname(new URL(import.meta.url).pathname).replace(/^\\|^\//, ''),
-    'ytm_token.json'
-);
+const getYTMApiUrl = () => `http://${ytmHost}:${ytmPort}/api/v1/`;
+const getYTMSocketUrl = () => `ws://${ytmHost}:${ytmPort}/api/v1/realtime`;
+const TOKEN_PATH = path.join(__dirname, 'ytm_token.json');
 
 let ytmSocket: Socket | null = null;
 let authToken: string | null = null;
 let currentRepeatMode = 0;
 let currentShuffleState = false;
+
+const clearAuthToken = () => {
+    authToken = null;
+    try {
+        if (fs.existsSync(TOKEN_PATH)) fs.unlinkSync(TOKEN_PATH);
+        console.log('Cleared expired auth token');
+    } catch (err) {
+        console.warn('Failed to delete token file:', err);
+    }
+};
 
 const executeControl = async (command: string, data?: unknown): Promise<void> => {
     const payload: { command: string; data?: unknown } = { command };
@@ -28,48 +40,57 @@ const executeControl = async (command: string, data?: unknown): Promise<void> =>
     try {
         const headers: { [key: string]: string } = {};
         if (authToken) headers.Authorization = authToken;
-        await axios.post(YTM_API_URL + 'command', payload, { headers });
+        await axios.post(getYTMApiUrl() + 'command', payload, { headers });
     } catch (err) {
-        const errorMessage = (err instanceof Error) ? err.message : 'Unknown API error';
-        console.error(`Error executing ${command}: ${errorMessage}`);
+        if (axios.isAxiosError(err) && err.response?.status === 403) {
+            console.warn(`Authentication failed for ${command} - token may be expired`);
+            clearAuthToken();
+            DeskThing.send({ 
+                type: 'YTM_AUTH_STATUS', 
+                payload: { status: 'expired', message: 'Authentication expired. Please restart the app to re-authenticate.' } 
+            });
+        } else {
+            const errorMessage = (err instanceof Error) ? err.message : 'Unknown API error';
+            console.error(`Error executing ${command}: ${errorMessage}`);
+        }
     }
 }
 
 const setupClientListeners = (): void => {
-    DeskThingApp.on('YTM_PLAY_PAUSE_TOGGLE', () => executeControl('playPause'));
-    DeskThingApp.on('YTM_PLAY', () => executeControl('play'));
-    DeskThingApp.on('YTM_PAUSE', () => executeControl('pause'));
-    DeskThingApp.on('YTM_SKIP_NEXT', () => executeControl('next'));
-    DeskThingApp.on('YTM_SKIP_PREVIOUS', () => executeControl('previous'));
+    DeskThing.on('YTM_PLAY_PAUSE_TOGGLE', () => executeControl('playPause'));
+    DeskThing.on('YTM_PLAY', () => executeControl('play'));
+    DeskThing.on('YTM_PAUSE', () => executeControl('pause'));
+    DeskThing.on('YTM_SKIP_NEXT', () => executeControl('next'));
+    DeskThing.on('YTM_SKIP_PREVIOUS', () => executeControl('previous'));
     
-    DeskThingApp.on('YTM_SHUFFLE_TOGGLE', async () => {
+    DeskThing.on('YTM_SHUFFLE_TOGGLE', async () => {
         currentShuffleState = !currentShuffleState;
         await executeControl('shuffle');
-        DeskThingApp.send({ 
+        DeskThing.send({ 
             type: 'YTM_SHUFFLE_STATE_UPDATE', 
             payload: { isShuffling: currentShuffleState } 
         });
     });
     
-    DeskThingApp.on('YTM_REPEAT_OFF', () => executeControl('repeatMode', 0));
-    DeskThingApp.on('YTM_REPEAT_ONE', () => executeControl('repeatMode', 1));
-    DeskThingApp.on('YTM_REPEAT_ALL', () => executeControl('repeatMode', 2));
-    DeskThingApp.on('YTM_REPEAT_TOGGLE', async () => {
+    DeskThing.on('YTM_REPEAT_OFF', () => executeControl('repeatMode', 0));
+    DeskThing.on('YTM_REPEAT_ONE', () => executeControl('repeatMode', 1));
+    DeskThing.on('YTM_REPEAT_ALL', () => executeControl('repeatMode', 2));
+    DeskThing.on('YTM_REPEAT_TOGGLE', async () => {
         const nextRepeat = (currentRepeatMode + 1) % 3;
         currentRepeatMode = nextRepeat;
         await executeControl('repeatMode', nextRepeat);
     });
     
-    DeskThingApp.on('YTM_VOLUME_UP', () => executeControl('volumeUp'));
-    DeskThingApp.on('YTM_VOLUME_DOWN', () => executeControl('volumeDown'));
-    DeskThingApp.on('YTM_SET_VOLUME', (data: { volume?: number }) => executeControl('setVolume', data?.volume || 50));
-    DeskThingApp.on('YTM_MUTE', () => executeControl('mute'));
-    DeskThingApp.on('YTM_UNMUTE', () => executeControl('unmute'));
-    DeskThingApp.on('YTM_SEEK_TO', (data: { position?: number }) => executeControl('seekTo', data?.position || 0));
-    DeskThingApp.on('YTM_TOGGLE_LIKE', () => executeControl('toggleLike'));
-    DeskThingApp.on('YTM_TOGGLE_DISLIKE', () => executeControl('toggleDislike'));
-    DeskThingApp.on('YTM_PLAY_QUEUE_INDEX', (data: { index?: number }) => executeControl('playQueueIndex', data?.index || 0));
-    DeskThingApp.on('YTM_CHANGE_VIDEO', (data: { videoId?: string; playlistId?: string }) => 
+    DeskThing.on('YTM_VOLUME_UP', () => executeControl('volumeUp'));
+    DeskThing.on('YTM_VOLUME_DOWN', () => executeControl('volumeDown'));
+    DeskThing.on('YTM_SET_VOLUME', (data: { volume?: number }) => executeControl('setVolume', data?.volume || 50));
+    DeskThing.on('YTM_MUTE', () => executeControl('mute'));
+    DeskThing.on('YTM_UNMUTE', () => executeControl('unmute'));
+    DeskThing.on('YTM_SEEK_TO', (data: { position?: number }) => executeControl('seekTo', data?.position || 0));
+    DeskThing.on('YTM_TOGGLE_LIKE', () => executeControl('toggleLike'));
+    DeskThing.on('YTM_TOGGLE_DISLIKE', () => executeControl('toggleDislike'));
+    DeskThing.on('YTM_PLAY_QUEUE_INDEX', (data: { index?: number }) => executeControl('playQueueIndex', data?.index || 0));
+    DeskThing.on('YTM_CHANGE_VIDEO', (data: { videoId?: string; playlistId?: string }) => 
         executeControl('changeVideo', data || { videoId: 'dQw4w9WgXcQ' }));
 }
 
@@ -158,7 +179,7 @@ const handleYTMStateUpdate = (state: unknown): void => {
         artUrl,
     };
     
-    DeskThingApp.send({ type: 'YTM_STATE_UPDATE', payload: stateUpdate });
+    DeskThing.send({ type: 'YTM_STATE_UPDATE', payload: stateUpdate });
 }
 
 
@@ -176,12 +197,12 @@ const getYTMAuthToken = async (): Promise<string> => {
     }
 
     console.log('Requesting authentication code from YTMDesktop...');
-    DeskThingApp.send({ 
+    DeskThing.send({ 
         type: 'YTM_AUTH_STATUS', 
         payload: { status: 'requesting_code', message: 'Requesting auth code...' } 
     });
 
-    const codeRes = await axios.post('http://127.0.0.1:9863/api/v1/auth/requestcode', {
+    const codeRes = await axios.post(`http://${ytmHost}:${ytmPort}/api/v1/auth/requestcode`, {
         appId: APP_ID,
         appName: APP_NAME,
         appVersion: '1.0.0',
@@ -191,7 +212,7 @@ const getYTMAuthToken = async (): Promise<string> => {
     console.log('Please approve this code in the YTMDesktop app to continue.');
     
     // Send auth code to DeskThing display
-    DeskThingApp.send({ 
+    DeskThing.send({ 
         type: 'YTM_AUTH_STATUS', 
         payload: { 
             status: 'code_generated', 
@@ -204,12 +225,12 @@ const getYTMAuthToken = async (): Promise<string> => {
     await new Promise(resolve => setTimeout(resolve, 15000));
 
     console.log('Requesting token with approved code...');
-    DeskThingApp.send({ 
+    DeskThing.send({ 
         type: 'YTM_AUTH_STATUS', 
         payload: { status: 'requesting_token', message: 'Getting auth token...' } 
     });
 
-    const tokenRes = await axios.post('http://127.0.0.1:9863/api/v1/auth/request', {
+    const tokenRes = await axios.post(`http://${ytmHost}:${ytmPort}/api/v1/auth/request`, {
         appId: APP_ID,
         code,
     });
@@ -223,7 +244,7 @@ const getYTMAuthToken = async (): Promise<string> => {
     }
     
     console.log('YTMDesktop authenticated successfully.');
-    DeskThingApp.send({ 
+    DeskThing.send({ 
         type: 'YTM_AUTH_STATUS', 
         payload: { status: 'authenticated', message: 'Successfully authenticated!' } 
     });
@@ -237,7 +258,7 @@ const connectToYTMDesktopSocketIO = async (): Promise<void> => {
     
     const connect = async () => {
         try {
-            ytmSocket = io(YTM_SOCKET_URL, {
+            ytmSocket = io(getYTMSocketUrl(), {
                 transports: ['websocket'],
                 auth: { token },
             });
@@ -273,8 +294,19 @@ const connectToYTMDesktopSocketIO = async (): Promise<void> => {
     connect();
 };
 
+// Settings handler
+DeskThing.on(DESKTHING_EVENTS.SETTINGS, (settings) => {
+    if (settings && settings.payload) {
+        ytmHost = settings.payload.host?.value?.toString() ?? '127.0.0.1';
+        ytmPort = Number(settings.payload.port?.value) || 9863;
+        autoReconnect = Boolean(settings.payload.autoReconnect?.value ?? true);
+        console.log(`Settings updated: ${ytmHost}:${ytmPort}, autoReconnect: ${autoReconnect}`);
+    }
+});
+
 const startup = async (): Promise<void> => {
     console.log('YTMThing Server starting...');
+    await setupSettings();
     setupClientListeners();
     await connectToYTMDesktopSocketIO();
     console.log('YTMThing Server ready.');
@@ -288,9 +320,11 @@ const stop = (): void => {
     }
 }
 
-DeskThingApp.on('start', startup);
-DeskThingApp.on('stop', stop);
-DeskThingApp.on('purge', () => {
+const purge = () => {
     stop(); 
     console.log('YTMThing Server purged.');
-});
+}
+
+DeskThing.on(DESKTHING_EVENTS.START, startup);
+DeskThing.on(DESKTHING_EVENTS.STOP, stop);
+DeskThing.on(DESKTHING_EVENTS.PURGE, purge);

@@ -12,25 +12,25 @@ import crypto from 'crypto';
 const APP_ID = 'ytmthing'; 
 const APP_NAME = "ytmthing";
 
-// ES Module equivalents for __filename and __dirname (only when not provided by esbuild)
+/**
+ * Handle ES Module compatibility for __filename and __dirname
+ * Uses esbuild variables in production, falls back to ES module equivalents in development
+ */
 declare const __filename: string;
 declare const __dirname: string;
 
-// Fallback for development mode
 let actualFilename: string;
 let actualDirname: string;
 
 try {
-    // Use esbuild-provided variables if available (production)
     actualFilename = __filename;
     actualDirname = __dirname;
 } catch {
-    // Fallback to ES module equivalents (development)
     actualFilename = fileURLToPath(import.meta.url);
     actualDirname = path.dirname(actualFilename);
 }
 
-// Default settings - will be overridden by user settings
+/** Application settings - configurable via DeskThing settings */
 let ytmHost = '127.0.0.1';
 let ytmPort = 9863;
 let autoReconnect = true;
@@ -45,6 +45,7 @@ let currentRepeatMode = 0;
 let currentShuffleState = false;
 let lastTrack = '';
 
+/** Clear authentication token from memory and disk */
 const clearAuthToken = () => {
     authToken = null;
     try {
@@ -55,6 +56,10 @@ const clearAuthToken = () => {
     }
 };
 
+/** 
+ * Execute a command on YTMDesktop via API
+ * Handles authentication and error recovery automatically
+ */
 const executeControl = async (command: string, data?: unknown): Promise<void> => {
     const payload: { command: string; data?: unknown } = { command };
     if (data !== undefined) payload.data = data;
@@ -78,6 +83,7 @@ const executeControl = async (command: string, data?: unknown): Promise<void> =>
     }
 }
 
+/** Set up event listeners for client control commands */
 const setupClientListeners = (): void => {
     DeskThing.on('YTM_PLAY_PAUSE_TOGGLE', () => executeControl('playPause'));
     DeskThing.on('YTM_PLAY', () => executeControl('play'));
@@ -116,10 +122,9 @@ const setupClientListeners = (): void => {
         executeControl('changeVideo', data || { videoId: 'dQw4w9WgXcQ' }));
 }
 
-// Images directory for DeskThing resource serving - must be in app root, not server subdirectory
+/** Image cache directory in app root for artwork storage */
 const imagesDir = path.join(actualDirname, '..', 'images');
 
-// Ensure images directory exists
 if (!fs.existsSync(imagesDir)) {
     fs.mkdirSync(imagesDir, { recursive: true });
 }
@@ -159,10 +164,15 @@ interface YTMState {
     video?: YTMVideo;
 }
 
+/** 
+ * Process YTMDesktop state updates and send to client
+ * Handles track info, playback state, and artwork caching
+ */
 const handleYTMStateUpdate = (state: unknown): void => {
     const s = state as YTMState;
     const queueItem = s.player?.queue?.items?.[s.player?.queue?.selectedItemIndex ?? 0] || {};
     
+    /** Extract optimal thumbnail URL from available thumbnails (prefers medium size) */
     const getThumbnailUrl = (thumbnails: { url: string; width?: number; height?: number }[] | undefined): string => {
         if (!thumbnails || thumbnails.length === 0) return '';
         
@@ -180,9 +190,9 @@ const handleYTMStateUpdate = (state: unknown): void => {
         return mediumThumbnail?.url || sorted[0]?.url || '';
     };
 
+    /** Download artwork from URL, cache to disk, and return as base64 data URL */
     const downloadAndCacheImage = async (url: string): Promise<string> => {
         try {
-            // Use crypto hash instead of truncated base64 to avoid collisions
             const urlHash = crypto.createHash('md5').update(url).digest('hex').substring(0, 32);
             
             console.log(`[Artwork] Downloading: ${url.substring(0, 60)}...`);
@@ -190,13 +200,11 @@ const handleYTMStateUpdate = (state: unknown): void => {
             
             if (result) {
                 console.log(`[Artwork] Downloaded and cached (${urlHash})`);
-                // Read the cached image and convert to base64 data URL
                 try {
                     const imagePath = path.join(imagesDir, `${urlHash}.jpg`);
                     const imageBuffer = fs.readFileSync(imagePath);
                     const base64Data = imageBuffer.toString('base64');
-                    const dataUrl = `data:image/jpeg;base64,${base64Data}`;
-                    return dataUrl;
+                    return `data:image/jpeg;base64,${base64Data}`;
                 } catch (error) {
                     console.error(`[Artwork] Failed to read downloaded image: ${error}`);
                     return '';
@@ -205,7 +213,6 @@ const handleYTMStateUpdate = (state: unknown): void => {
                 console.error(`[Artwork] Failed to save image from URL: ${url}`);
                 return '';
             }
-            
         } catch (error) {
             console.error(`[Artwork] Failed to download image:`, error);
             return '';
@@ -230,21 +237,20 @@ const handleYTMStateUpdate = (state: unknown): void => {
             
             console.log(`[Artwork] Processing: ${url.substring(0, 60)}...`);
             
-            // Check if already cached
+            // Check if image is already cached and return as base64 data URL
             if (fs.existsSync(imagePath)) {
                 console.log(`[Artwork] Using cached image (${urlHash})`);
-                // Try serving the actual file data as base64 data URL
                 try {
                     const imageBuffer = fs.readFileSync(imagePath);
                     const base64Data = imageBuffer.toString('base64');
-                    const dataUrl = `data:image/jpeg;base64,${base64Data}`;
-                    return dataUrl;
+                    return `data:image/jpeg;base64,${base64Data}`;
                 } catch (error) {
                     console.error(`[Artwork] Failed to read cached image: ${error}`);
                     return '';
                 }
             }
             
+            // Download if not in cache
             console.log(`[Artwork] Image not cached, downloading...`);
             // Download and cache
             return await downloadAndCacheImage(url);
@@ -275,7 +281,7 @@ const handleYTMStateUpdate = (state: unknown): void => {
     currentRepeatMode = ytmRepeatMode;
     const currentTrack = `${queueItem.title || s.video?.title || 'No Track'} - ${queueItem.author || s.video?.author || 'No Artist'}`;
     
-    // Process artwork asynchronously
+    // Process artwork asynchronously to avoid blocking state updates
     fixArtworkUrl(artUrl).then((finalArtUrl) => {
         
         const stateUpdate = {
@@ -287,7 +293,7 @@ const handleYTMStateUpdate = (state: unknown): void => {
             artUrl: finalArtUrl,
         };
         
-        // Track artwork changes
+        // Log artwork status for new tracks
         if (currentTrack !== lastTrack) {
             console.log(`[State Update] ${currentTrack} ${finalArtUrl ? '✅' : '❌'}`);
             lastTrack = currentTrack;
@@ -295,7 +301,7 @@ const handleYTMStateUpdate = (state: unknown): void => {
         DeskThing.send({ type: 'YTM_STATE_UPDATE', payload: stateUpdate });
     }).catch((error) => {
         console.error('[Artwork] Error processing artwork:', error);
-        // Send update without artwork if there's an error
+        // Fallback state update without artwork on processing error
         const stateUpdate = {
             isPlaying: s.player?.trackState === 1,
             isShuffling: isShuffling,
@@ -309,6 +315,7 @@ const handleYTMStateUpdate = (state: unknown): void => {
 }
 
 
+/** Retrieve or request new authentication token from YTMDesktop */
 const getYTMAuthToken = async (): Promise<string> => {
     if (fs.existsSync(TOKEN_PATH)) {
         try {
@@ -337,7 +344,7 @@ const getYTMAuthToken = async (): Promise<string> => {
     console.log(`YTMDesktop Auth Code: ${code}`);
     console.log('Please approve this code in the YTMDesktop app to continue.');
     
-    // Send auth code to DeskThing display
+    // Display auth code in DeskThing interface
     DeskThing.send({ 
         type: 'YTM_AUTH_STATUS', 
         payload: { 
@@ -347,7 +354,7 @@ const getYTMAuthToken = async (): Promise<string> => {
         } 
     });
 
-    // Wait longer for user to approve
+    // Allow time for user to approve code in YTMDesktop
     await new Promise(resolve => setTimeout(resolve, 15000));
 
     console.log('Requesting token with approved code...');
@@ -378,6 +385,7 @@ const getYTMAuthToken = async (): Promise<string> => {
     return token;
 };
 
+/** Establish WebSocket connection to YTMDesktop with authentication */
 const connectToYTMDesktopSocketIO = async (): Promise<void> => {
     let token = await getYTMAuthToken();
     let triedReauth = false;
@@ -420,7 +428,7 @@ const connectToYTMDesktopSocketIO = async (): Promise<void> => {
     connect();
 };
 
-// Settings handler
+/** Handle DeskThing configuration settings */
 DeskThing.on(DESKTHING_EVENTS.SETTINGS, (settings) => {
     if (settings && settings.payload) {
         ytmHost = settings.payload.host?.value?.toString() ?? '127.0.0.1';
@@ -430,14 +438,16 @@ DeskThing.on(DESKTHING_EVENTS.SETTINGS, (settings) => {
     }
 });
 
+/** Initialize DeskThing app and establish YTMDesktop connection */
 const startup = async (): Promise<void> => {
-    console.log('YTMThing Server starting... [Version: 2.0 - Resource Serving]');
+    console.log('YTMThing Server starting...');
     await setupSettings();
     setupClientListeners();
     await connectToYTMDesktopSocketIO();
     console.log('YTMThing Server ready.');
 }
 
+/** Clean shutdown of YTMDesktop connection */
 const stop = (): void => {
     console.log('YTMThing Server stopping...');
     if (ytmSocket) {
@@ -446,6 +456,7 @@ const stop = (): void => {
     }
 }
 
+/** Complete cleanup and shutdown */
 const purge = () => {
     stop(); 
     console.log('YTMThing Server purged.');

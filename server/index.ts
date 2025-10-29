@@ -34,6 +34,10 @@ try {
 let ytmHost = '127.0.0.1';
 let ytmPort = 9863;
 let autoReconnect = true;
+let backgroundColor = '#000000';
+let textColor = '#ffffff';
+let buttonColor = '#374151';
+let accentColor = '#dc2626';
 
 const getYTMApiUrl = () => `http://${ytmHost}:${ytmPort}/api/v1/`;
 const getYTMSocketUrl = () => `ws://${ytmHost}:${ytmPort}/api/v1/realtime`;
@@ -434,7 +438,23 @@ DeskThing.on(DESKTHING_EVENTS.SETTINGS, (settings) => {
         ytmHost = settings.payload.host?.value?.toString() ?? '127.0.0.1';
         ytmPort = Number(settings.payload.port?.value) || 9863;
         autoReconnect = Boolean(settings.payload.autoReconnect?.value ?? true);
+        backgroundColor = settings.payload.backgroundColor?.value?.toString() ?? backgroundColor;
+        textColor = settings.payload.textColor?.value?.toString() ?? textColor;
+        buttonColor = settings.payload.buttonColor?.value?.toString() ?? buttonColor;
+        accentColor = settings.payload.accentColor?.value?.toString() ?? accentColor;
+
         console.log(`Settings updated: ${ytmHost}:${ytmPort}, autoReconnect: ${autoReconnect}`);
+        
+        // Send updated color settings to client
+        DeskThing.send({
+            type: 'YTM_COLOR_SETTINGS',
+            payload: {
+                backgroundColor,
+                textColor,
+                buttonColor,
+                accentColor
+            }
+        });
     }
 });
 
@@ -444,6 +464,18 @@ const startup = async (): Promise<void> => {
     await setupSettings();
     setupClientListeners();
     await connectToYTMDesktopSocketIO();
+    
+    // Send initial color settings to client
+    DeskThing.send({
+        type: 'YTM_COLOR_SETTINGS',
+        payload: {
+            backgroundColor,
+            textColor,
+            buttonColor,
+            accentColor
+        }
+    });
+    
     console.log('YTMThing Server ready.');
 }
 

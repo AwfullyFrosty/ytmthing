@@ -24,6 +24,34 @@ export const setupSettings = async () => {
             label: 'Auto Reconnect',
             value: true,
         },
+        backgroundColor: {
+            id: 'backgroundColor',
+            type: SETTING_TYPES.STRING,
+            description: 'Background color behind song text and controls (hex code).',
+            label: 'Background Color',
+            value: '#000000',
+        },
+        textColor: {
+            id: 'textColor',
+            type: SETTING_TYPES.STRING,
+            description: 'Color of song title and artist text (hex code).',
+            label: 'Text Color',
+            value: '#ffffff',
+        },
+        buttonColor: {
+            id: 'buttonColor',
+            type: SETTING_TYPES.STRING,
+            description: 'Color of control buttons (hex code).',
+            label: 'Button Color',
+            value: '#374151',
+        },
+        accentColor: {
+            id: 'accentColor',
+            type: SETTING_TYPES.STRING,
+            description: 'Color for active states and play button (hex code).',
+            label: 'Accent Color',
+            value: '#dc2626',
+        },
     }
     DeskThing.initSettings(Settings);
 };

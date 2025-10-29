@@ -11,6 +11,13 @@ interface YTMState {
     artUrl: string;
 }
 
+interface ColorSettings {
+    backgroundColor: string;
+    textColor: string;
+    buttonColor: string;
+    accentColor: string;
+}
+
 interface DeskThingClientInstance {
     send: (data: { type: string; payload?: unknown }) => void;
     on: (event: string, callback: (data: { type: string, payload: unknown }) => void) => () => void;
@@ -21,11 +28,18 @@ const App: React.FC = () => {
     const { send } = clientInstance;
     const [ytmState, setYTMState] = useState<YTMState | null>(null);
     const [connected, setConnected] = useState(false);
+    const [colorSettings, setColorSettings] = useState<ColorSettings>({
+        backgroundColor: '#000000',
+        textColor: '#ffffff', 
+        buttonColor: '#374151',
+        accentColor: '#dc2626'
+    });
 
     useEffect(() => {
         let unsubscribeError = () => {};
         let unsubscribeState = () => {};
         let unsubscribeShuffleUpdate = () => {};
+        let unsubscribeColorSettings = () => {};
         
         if (typeof DeskThing.on === 'function') {
             unsubscribeError = DeskThing.on('error', (err: unknown) => {
@@ -45,12 +59,20 @@ const App: React.FC = () => {
                     setYTMState(prev => prev ? { ...prev, isShuffling: payload.isShuffling } : null);
                 }
             });
+            
+            unsubscribeColorSettings = DeskThing.on('YTM_COLOR_SETTINGS', (data: { type: string; payload: unknown }) => {
+                const payload = data.payload as ColorSettings;
+                if (payload) {
+                    setColorSettings(payload);
+                }
+            });
         }
         
         return () => {
             unsubscribeError();
             unsubscribeState();
             unsubscribeShuffleUpdate();
+            unsubscribeColorSettings();
         };
     }, []);
 
@@ -58,7 +80,13 @@ const App: React.FC = () => {
     const connectionStatus = connected && ytmState
         ? null
         : (
-            <div className="absolute inset-0 flex flex-col justify-center items-center bg-gray-900/90 text-white p-4">
+            <div 
+                className="absolute inset-0 flex flex-col justify-center items-center p-4"
+                style={{ 
+                    backgroundColor: colorSettings.backgroundColor + 'E6', // 90% opacity
+                    color: colorSettings.textColor
+                }}
+            >
                 <h1 className="text-xl font-semibold">Connecting...</h1>
                 <p className="text-sm">{connected ? 'Waiting for music data...' : 'Waiting for Server...'}</p>
             </div>
@@ -70,9 +98,17 @@ const App: React.FC = () => {
     
     // --- Render ---
     return (
-        <div className="relative w-full h-screen flex bg-black text-white overflow-hidden" style={{ width: '800px', height: '480px' }}>
+        <div 
+            className="relative w-full h-screen flex overflow-hidden" 
+            style={{ 
+                width: '800px', 
+                height: '480px',
+                backgroundColor: colorSettings.backgroundColor,
+                color: colorSettings.textColor
+            }}
+        >
             {/* Left Side - Album Art */}
-            <div className="w-80 h-full flex-shrink-0 relative bg-black">
+            <div className="w-80 h-full flex-shrink-0 relative" style={{ backgroundColor: colorSettings.backgroundColor }}>
                 {ytmState?.artUrl && (
                     <img 
                         key={ytmState.artUrl} // Force re-render when artUrl changes
@@ -113,11 +149,15 @@ const App: React.FC = () => {
                 )}
                 
                 {/* Fallback artwork - shows when no artUrl or image fails to load */}
-                <div className={`w-full h-full bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center absolute inset-0 ${ytmState?.artUrl ? 'z-0' : 'z-10'}`}>
-                    <div className="text-center text-gray-500">
+                <div 
+                    className={`w-full h-full bg-gradient-to-br flex items-center justify-center absolute inset-0 ${ytmState?.artUrl ? 'z-0' : 'z-10'}`}
+                    style={{
+                        backgroundImage: `linear-gradient(to bottom right, ${colorSettings.buttonColor}, ${colorSettings.backgroundColor})`
+                    }}
+                >
+                    <div className="text-center" style={{ color: colorSettings.textColor, opacity: 0.7 }}>
                         <Music size={64} className="mx-auto mb-2" />
                         <div className="text-sm">No Artwork</div>
-
                     </div>
                 </div>
                 
@@ -129,10 +169,16 @@ const App: React.FC = () => {
             <div className="flex-1 flex flex-col justify-between p-6">
                 {/* Track Information */}
                 <div className="flex-1 flex flex-col justify-center">
-                    <h1 className="text-2xl font-bold mb-2 line-clamp-2 leading-tight">
+                    <h1 
+                        className="text-2xl font-bold mb-2 line-clamp-2 leading-tight"
+                        style={{ color: colorSettings.textColor }}
+                    >
                         {title}
                     </h1>
-                    <p className="text-lg text-gray-300 mb-4 line-clamp-1">
+                    <p 
+                        className="text-lg mb-4 line-clamp-1 opacity-80"
+                        style={{ color: colorSettings.textColor }}
+                    >
                         {artist}
                     </p>
                     
@@ -140,19 +186,23 @@ const App: React.FC = () => {
                     
                     {/* Status Indicators */}
                     <div className="flex items-center gap-3 mb-6">
-                        <div className={`flex items-center gap-2 text-sm transition-all duration-200 ${
-                            ytmState?.isShuffling 
-                                ? 'text-red-400 opacity-100' 
-                                : 'text-gray-500 opacity-50'
-                        }`}>
+                        <div 
+                            className="flex items-center gap-2 text-sm transition-all duration-200"
+                            style={{ 
+                                color: ytmState?.isShuffling ? colorSettings.accentColor : colorSettings.textColor,
+                                opacity: ytmState?.isShuffling ? 1 : 0.5
+                            }}
+                        >
                             <Shuffle size={16} />
                             <span>Shuffle</span>
                         </div>
-                        <div className={`flex items-center gap-2 text-sm transition-all duration-200 ${
-                            ytmState?.isRepeating 
-                                ? 'text-red-400 opacity-100' 
-                                : 'text-gray-500 opacity-50'
-                        }`}>
+                        <div 
+                            className="flex items-center gap-2 text-sm transition-all duration-200"
+                            style={{ 
+                                color: ytmState?.isRepeating ? colorSettings.accentColor : colorSettings.textColor,
+                                opacity: ytmState?.isRepeating ? 1 : 0.5
+                            }}
+                        >
                             <Repeat size={16} />
                             <span>Repeat</span>
                         </div>
@@ -163,48 +213,98 @@ const App: React.FC = () => {
                 <div className="flex items-center justify-between">
                     <button 
                         onClick={control('YTM_SHUFFLE_TOGGLE')} 
-                        className={`p-3 rounded-full transition-all duration-200 ${
-                            ytmState?.isShuffling 
-                                ? 'bg-red-600 hover:bg-red-700 text-white shadow-lg' 
-                                : 'bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-white'
-                        }`}
+                        className="p-3 rounded-full transition-all duration-200 shadow-lg"
+                        style={{
+                            backgroundColor: ytmState?.isShuffling ? colorSettings.accentColor : colorSettings.buttonColor,
+                            color: ytmState?.isShuffling ? '#ffffff' : colorSettings.textColor
+                        }}
                         title="Toggle Shuffle"
+                        onMouseEnter={(e) => {
+                            if (ytmState?.isShuffling) {
+                                e.currentTarget.style.filter = 'brightness(0.9)';
+                            } else {
+                                e.currentTarget.style.filter = 'brightness(1.2)';
+                            }
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.filter = 'brightness(1)';
+                        }}
                     >
                         <Shuffle size={20} />
                     </button>
                     
                     <button 
                         onClick={control('YTM_SKIP_PREVIOUS')} 
-                        className="p-3 bg-gray-700 hover:bg-gray-600 rounded-full transition-all duration-200 text-gray-300 hover:text-white"
+                        className="p-3 rounded-full transition-all duration-200"
+                        style={{
+                            backgroundColor: colorSettings.buttonColor,
+                            color: colorSettings.textColor
+                        }}
                         title="Previous Track"
+                        onMouseEnter={(e) => {
+                            e.currentTarget.style.filter = 'brightness(1.2)';
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.filter = 'brightness(1)';
+                        }}
                     >
                         <SkipBack size={20} />
                     </button>
                     
                     <button 
                         onClick={control('YTM_PLAY_PAUSE_TOGGLE')} 
-                        className="p-4 bg-red-600 hover:bg-red-700 text-white rounded-full transition-all duration-200 hover:scale-105 shadow-lg"
+                        className="p-4 rounded-full transition-all duration-200 shadow-lg hover:scale-105"
+                        style={{
+                            backgroundColor: colorSettings.accentColor,
+                            color: '#ffffff'
+                        }}
                         title={isPlaying ? 'Pause' : 'Play'}
+                        onMouseEnter={(e) => {
+                            e.currentTarget.style.filter = 'brightness(0.9)';
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.filter = 'brightness(1)';
+                        }}
                     >
                         {isPlaying ? <Pause size={24} /> : <Play size={24} />}
                     </button>
                     
                     <button 
                         onClick={control('YTM_SKIP_NEXT')} 
-                        className="p-3 bg-gray-700 hover:bg-gray-600 rounded-full transition-all duration-200 text-gray-300 hover:text-white"
+                        className="p-3 rounded-full transition-all duration-200"
+                        style={{
+                            backgroundColor: colorSettings.buttonColor,
+                            color: colorSettings.textColor
+                        }}
                         title="Next Track"
+                        onMouseEnter={(e) => {
+                            e.currentTarget.style.filter = 'brightness(1.2)';
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.filter = 'brightness(1)';
+                        }}
                     >
                         <SkipForward size={20} />
                     </button>
                     
                     <button 
                         onClick={control('YTM_REPEAT_TOGGLE')} 
-                        className={`p-3 rounded-full transition-all duration-200 ${
-                            ytmState?.isRepeating 
-                                ? 'bg-red-600 hover:bg-red-700 text-white shadow-lg' 
-                                : 'bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-white'
-                        }`}
+                        className="p-3 rounded-full transition-all duration-200 shadow-lg"
+                        style={{
+                            backgroundColor: ytmState?.isRepeating ? colorSettings.accentColor : colorSettings.buttonColor,
+                            color: ytmState?.isRepeating ? '#ffffff' : colorSettings.textColor
+                        }}
                         title="Toggle Repeat"
+                        onMouseEnter={(e) => {
+                            if (ytmState?.isRepeating) {
+                                e.currentTarget.style.filter = 'brightness(0.9)';
+                            } else {
+                                e.currentTarget.style.filter = 'brightness(1.2)';
+                            }
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.filter = 'brightness(1)';
+                        }}
                     >
                         <Repeat size={20} />
                     </button>

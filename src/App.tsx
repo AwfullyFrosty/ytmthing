@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { DeskThing } from '@deskthing/client';
-import { Shuffle, Repeat, SkipBack, SkipForward, Play, Pause, Music } from 'lucide-react';
+import { /* Shuffle, */ Repeat, SkipBack, SkipForward, Play, Pause, Music } from 'lucide-react';
 
 interface YTMState {
     isPlaying: boolean;
-    isShuffling: boolean;
+    // NOTE: Shuffle functionality temporarily disabled - YTM API doesn't properly support shuffle states currently but is in the works
+    // isShuffling: boolean;
     isRepeating: boolean;
     title: string;
     artist: string;
@@ -51,7 +52,8 @@ const App: React.FC = () => {
     useEffect(() => {
         let unsubscribeError = () => {};
         let unsubscribeState = () => {};
-        let unsubscribeShuffleUpdate = () => {};
+        // NOTE: Shuffle functionality temporarily disabled - YTM API doesn't properly support shuffle states currently but is in the works
+        // let unsubscribeShuffleUpdate = () => {};
         let unsubscribeColorSettings = () => {};
         
         if (typeof DeskThing.on === 'function') {
@@ -66,12 +68,13 @@ const App: React.FC = () => {
                 setConnected(true);
             });
             
-            unsubscribeShuffleUpdate = DeskThing.on('YTM_SHUFFLE_STATE_UPDATE', (data: { type: string; payload: unknown }) => {
-                const payload = data.payload as { isShuffling: boolean };
-                if (payload && typeof payload.isShuffling === 'boolean') {
-                    setYTMState(prev => prev ? { ...prev, isShuffling: payload.isShuffling } : null);
-                }
-            });
+            // NOTE: Shuffle functionality temporarily disabled - YTM API doesn't properly support shuffle states currently but is in the works
+            // unsubscribeShuffleUpdate = DeskThing.on('YTM_SHUFFLE_STATE_UPDATE', (data: { type: string; payload: unknown }) => {
+            //     const payload = data.payload as { isShuffling: boolean };
+            //     if (payload && typeof payload.isShuffling === 'boolean') {
+            //         setYTMState(prev => prev ? { ...prev, isShuffling: payload.isShuffling } : null);
+            //     }
+            // });
             
             unsubscribeColorSettings = DeskThing.on('YTM_COLOR_SETTINGS', (data: { type: string; payload: unknown }) => {
                 const payload = data.payload as ColorSettings;
@@ -98,7 +101,8 @@ const App: React.FC = () => {
         return () => {
             unsubscribeError();
             unsubscribeState();
-            unsubscribeShuffleUpdate();
+            // NOTE: Shuffle functionality temporarily disabled - YTM API doesn't properly support shuffle states currently but is in the works
+            // unsubscribeShuffleUpdate();
             unsubscribeColorSettings();
         };
     }, [send]);
@@ -213,7 +217,8 @@ const App: React.FC = () => {
                     
                     {/* Status Indicators */}
                     <div className="flex items-center gap-3 mb-6">
-                        <div 
+                        {/* NOTE: Shuffle functionality temporarily disabled - YTM API doesn't properly support shuffle states currently but is in the works */}
+                        {/* <div 
                             className="flex items-center gap-2 text-sm transition-all duration-200"
                             style={{ 
                                 color: ytmState?.isShuffling ? colorSettings.accentColor : colorSettings.textColor,
@@ -222,7 +227,7 @@ const App: React.FC = () => {
                         >
                             <Shuffle size={16} />
                             <span>Shuffle</span>
-                        </div>
+                        </div> */}
                         <div 
                             className="flex items-center gap-2 text-sm transition-all duration-200"
                             style={{ 
@@ -238,27 +243,9 @@ const App: React.FC = () => {
 
                 {/* Control Buttons */}
                 <div className="flex items-center justify-between">
-                    <button 
-                        onClick={control('YTM_SHUFFLE_TOGGLE')} 
-                        className="p-3 rounded-full transition-all duration-200 shadow-lg"
-                        style={{
-                            backgroundColor: ytmState?.isShuffling ? colorSettings.accentColor : colorSettings.buttonColor,
-                            color: ytmState?.isShuffling ? '#ffffff' : colorSettings.textColor
-                        }}
-                        title="Toggle Shuffle"
-                        onMouseEnter={(e) => {
-                            if (ytmState?.isShuffling) {
-                                e.currentTarget.style.filter = 'brightness(0.9)';
-                            } else {
-                                e.currentTarget.style.filter = 'brightness(1.2)';
-                            }
-                        }}
-                        onMouseLeave={(e) => {
-                            e.currentTarget.style.filter = 'brightness(1)';
-                        }}
-                    >
-                        <Shuffle size={20} />
-                    </button>
+                    {/* NOTE: Shuffle functionality temporarily disabled - YTM API doesn't properly support shuffle states currently but is in the works */}
+                    {/* Placeholder div to maintain layout spacing */}
+                    <div className="p-3 w-[44px] h-[44px]"></div>
                     
                     <button 
                         onClick={control('YTM_SKIP_PREVIOUS')} 

@@ -46,8 +46,11 @@ const TOKEN_PATH = path.join(actualDirname, 'ytm_token.json');
 let ytmSocket: Socket | null = null;
 let authToken: string | null = null;
 let currentRepeatMode = 0;
-let currentShuffleState = false;
+// NOTE: Shuffle functionality temporarily disabled - YTM API doesn't properly support shuffle states currently but is in the works
+// let currentShuffleState = false;
 let lastTrack = '';
+// let lastShuffleToggle = 0;
+let clientListenersSetup = false;
 
 /** Get color values for a specific preset */
 const getColorPreset = (presetId: string) => {
@@ -148,18 +151,36 @@ const executeControl = async (command: string, data?: unknown): Promise<void> =>
     const payload: { command: string; data?: unknown } = { command };
     if (data !== undefined) payload.data = data;
     
+    console.log(`[API] Executing command: ${command}${data ? ` with data: ${JSON.stringify(data)}` : ''}`);
+    
     try {
         const headers: { [key: string]: string } = {};
-        if (authToken) headers.Authorization = authToken;
+        if (authToken) {
+            headers.Authorization = authToken;
+        } else {
+            console.warn(`[API] No auth token available for command: ${command}`);
+        }
+        
         await axios.post(getYTMApiUrl() + 'command', payload, { headers });
+        console.log(`[API] Command ${command} executed successfully`);
+        
     } catch (err) {
-        if (axios.isAxiosError(err) && err.response?.status === 403) {
-            console.warn(`Authentication failed for ${command} - token may be expired`);
-            clearAuthToken();
-            DeskThing.send({ 
-                type: 'YTM_AUTH_STATUS', 
-                payload: { status: 'expired', message: 'Authentication expired. Please restart the app to re-authenticate.' } 
+        if (axios.isAxiosError(err)) {
+            console.error(`[API] Error executing ${command}:`, {
+                status: err.response?.status,
+                statusText: err.response?.statusText,
+                data: err.response?.data,
+                url: getYTMApiUrl() + 'command'
             });
+            
+            if (err.response?.status === 403) {
+                console.warn(`Authentication failed for ${command} - token may be expired`);
+                clearAuthToken();
+                DeskThing.send({ 
+                    type: 'YTM_AUTH_STATUS', 
+                    payload: { status: 'expired', message: 'Authentication expired. Please restart the app to re-authenticate.' } 
+                });
+            }
         } else {
             const errorMessage = (err instanceof Error) ? err.message : 'Unknown API error';
             console.error(`Error executing ${command}: ${errorMessage}`);
@@ -169,20 +190,42 @@ const executeControl = async (command: string, data?: unknown): Promise<void> =>
 
 /** Set up event listeners for client control commands */
 const setupClientListeners = (): void => {
+    if (clientListenersSetup) {
+        console.log('[Setup] Client listeners already set up, skipping duplicate setup');
+        return;
+    }
+    clientListenersSetup = true;
+    console.log('[Setup] Setting up client event listeners');
     DeskThing.on('YTM_PLAY_PAUSE_TOGGLE', () => executeControl('playPause'));
     DeskThing.on('YTM_PLAY', () => executeControl('play'));
     DeskThing.on('YTM_PAUSE', () => executeControl('pause'));
     DeskThing.on('YTM_SKIP_NEXT', () => executeControl('next'));
     DeskThing.on('YTM_SKIP_PREVIOUS', () => executeControl('previous'));
     
-    DeskThing.on('YTM_SHUFFLE_TOGGLE', async () => {
-        currentShuffleState = !currentShuffleState;
-        await executeControl('shuffle');
-        DeskThing.send({ 
-            type: 'YTM_SHUFFLE_STATE_UPDATE', 
-            payload: { isShuffling: currentShuffleState } 
-        });
-    });
+    // NOTE: Shuffle functionality temporarily disabled - YTM API doesn't properly support shuffle states currently but is in the works
+    // DeskThing.on('YTM_SHUFFLE_TOGGLE', async () => {
+    //     const now = Date.now();
+        
+    //     // Prevent rapid duplicate toggles (debounce for 500ms)
+    //     if (now - lastShuffleToggle < 500) {
+    //         console.log(`[Shuffle] Ignoring rapid toggle (${now - lastShuffleToggle}ms since last)`);
+    //         return;
+    //     }
+    //     lastShuffleToggle = now;
+        
+    //     console.log(`[Shuffle] Processing toggle command`);
+    //     await executeControl('shuffle');
+        
+    //     // Since YTMDesktop doesn't provide shuffle state in its updates, we track it locally
+    //     currentShuffleState = !currentShuffleState;
+    //     console.log(`[Shuffle] Local state toggled to: ${currentShuffleState}`);
+        
+    //     // Send immediate update to client with new shuffle state
+    //     DeskThing.send({ 
+    //         type: 'YTM_SHUFFLE_STATE_UPDATE', 
+    //         payload: { isShuffling: currentShuffleState } 
+    //     });
+    // });
     
     DeskThing.on('YTM_REPEAT_OFF', () => executeControl('repeatMode', 0));
     DeskThing.on('YTM_REPEAT_ONE', () => executeControl('repeatMode', 1));
@@ -243,6 +286,7 @@ interface YTMQueue {
     selectedItemIndex?: number;
     autoplay?: boolean;
     repeatMode?: number;
+    shuffled?: boolean;
 }
 
 interface YTMPlayer {
@@ -269,6 +313,9 @@ const handleYTMStateUpdate = (state: unknown): void => {
     const s = state as YTMState;
     const queueItem = s.player?.queue?.items?.[s.player?.queue?.selectedItemIndex ?? 0] || {};
     
+    // Note: YTMDesktop doesn't provide shuffle state in queue updates
+    // We track shuffle state locally when commands are sent
+    
     /** Extract optimal thumbnail URL from available thumbnails (prefers medium size) */
     const getThumbnailUrl = (thumbnails: { url: string; width?: number; height?: number }[] | undefined): string => {
         if (!thumbnails || thumbnails.length === 0) return '';
@@ -291,12 +338,11 @@ const handleYTMStateUpdate = (state: unknown): void => {
     const downloadAndCacheImage = async (url: string): Promise<string> => {
         try {
             const urlHash = crypto.createHash('md5').update(url).digest('hex').substring(0, 32);
-            
-            console.log(`[Artwork] Downloading: ${url.substring(0, 60)}...`);
+                      
             const result = await saveImage(url, urlHash);
             
             if (result) {
-                console.log(`[Artwork] Downloaded and cached (${urlHash})`);
+                
                 try {
                     const imagePath = path.join(imagesDir, `${urlHash}.jpg`);
                     const imageBuffer = fs.readFileSync(imagePath);
@@ -322,7 +368,6 @@ const handleYTMStateUpdate = (state: unknown): void => {
         // Replace localhost/127.0.0.1 with the actual YTM host for network accessibility
         if (url.includes('127.0.0.1') || url.includes('localhost')) {
             const fixedUrl = url.replace(/(?:127\.0\.0\.1|localhost)/g, ytmHost);
-            console.log(`[Artwork] Fixed localhost URL: ${fixedUrl}`);
             return fixedUrl;
         }
         
@@ -332,11 +377,9 @@ const handleYTMStateUpdate = (state: unknown): void => {
             const urlHash = crypto.createHash('md5').update(url).digest('hex').substring(0, 32);
             const imagePath = path.join(imagesDir, `${urlHash}.jpg`);
             
-            console.log(`[Artwork] Processing: ${url.substring(0, 60)}...`);
             
             // Check if image is already cached and return as base64 data URL
             if (fs.existsSync(imagePath)) {
-                console.log(`[Artwork] Using cached image (${urlHash})`);
                 try {
                     const imageBuffer = fs.readFileSync(imagePath);
                     const base64Data = imageBuffer.toString('base64');
@@ -347,8 +390,6 @@ const handleYTMStateUpdate = (state: unknown): void => {
                 }
             }
             
-            // Download if not in cache
-            console.log(`[Artwork] Image not cached, downloading...`);
             // Download and cache
             return await downloadAndCacheImage(url);
         }
@@ -372,9 +413,10 @@ const handleYTMStateUpdate = (state: unknown): void => {
             artUrl = getThumbnailUrl(counterpart.thumbnails);
         }
     }
-    const queueExt = s.player?.queue as { repeatMode?: number };
-    const isShuffling = currentShuffleState;
-    const ytmRepeatMode = queueExt?.repeatMode ?? 0;
+    // NOTE: Shuffle functionality temporarily disabled - YTM API doesn't properly support shuffle states currently but is in the works
+    // const isShuffling = currentShuffleState;
+    const isShuffling = false; // Hardcoded to false since shuffle is disabled
+    const ytmRepeatMode = s.player?.queue?.repeatMode ?? 0;
     currentRepeatMode = ytmRepeatMode;
     const currentTrack = `${queueItem.title || s.video?.title || 'No Track'} - ${queueItem.author || s.video?.author || 'No Artist'}`;
     

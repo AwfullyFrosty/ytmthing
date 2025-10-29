@@ -228,8 +228,8 @@ const setupClientListeners = (): void => {
     // });
     
     DeskThing.on('YTM_REPEAT_OFF', () => executeControl('repeatMode', 0));
-    DeskThing.on('YTM_REPEAT_ONE', () => executeControl('repeatMode', 1));
-    DeskThing.on('YTM_REPEAT_ALL', () => executeControl('repeatMode', 2));
+    DeskThing.on('YTM_REPEAT_ALL', () => executeControl('repeatMode', 1));
+    DeskThing.on('YTM_REPEAT_ONE', () => executeControl('repeatMode', 2));
     DeskThing.on('YTM_REPEAT_TOGGLE', async () => {
         const nextRepeat = (currentRepeatMode + 1) % 3;
         currentRepeatMode = nextRepeat;
@@ -241,7 +241,7 @@ const setupClientListeners = (): void => {
     DeskThing.on('YTM_SET_VOLUME', (data: { volume?: number }) => executeControl('setVolume', data?.volume || 50));
     DeskThing.on('YTM_MUTE', () => executeControl('mute'));
     DeskThing.on('YTM_UNMUTE', () => executeControl('unmute'));
-    DeskThing.on('YTM_SEEK_TO', (data: { position?: number }) => executeControl('seekTo', data?.position || 0));
+    DeskThing.on('YTM_SEEK_TO', (data: { payload?: { position?: number } }) => executeControl('seekTo', data?.payload?.position || 0));
     DeskThing.on('YTM_TOGGLE_LIKE', () => executeControl('toggleLike'));
     DeskThing.on('YTM_TOGGLE_DISLIKE', () => executeControl('toggleDislike'));
     DeskThing.on('YTM_PLAY_QUEUE_INDEX', (data: { index?: number }) => executeControl('playQueueIndex', data?.index || 0));
@@ -291,6 +291,9 @@ interface YTMQueue {
 
 interface YTMPlayer {
     trackState?: number;
+    videoProgress?: number;
+    volume?: number;
+    muted?: boolean;
     queue?: YTMQueue;
 }
 
@@ -298,6 +301,8 @@ interface YTMVideo {
     title?: string;
     author?: string;
     thumbnails?: { url: string; width?: number; height?: number }[];
+    durationSeconds?: number;
+    likeStatus?: number;
 }
 
 interface YTMState {
@@ -427,9 +432,14 @@ const handleYTMStateUpdate = (state: unknown): void => {
             isPlaying: s.player?.trackState === 1,
             isShuffling: isShuffling,
             isRepeating: ytmRepeatMode > 0,
+            repeatMode: ytmRepeatMode,
             title: queueItem.title || s.video?.title || 'No Track',
             artist: queueItem.author || s.video?.author || 'No Artist',
             artUrl: finalArtUrl,
+            videoProgress: s.player?.videoProgress || 0,
+            durationSeconds: s.video?.durationSeconds || 0,
+            muted: s.player?.muted || false,
+            likeStatus: s.video?.likeStatus || 0,
         };
         
         // Log artwork status for new tracks
@@ -445,10 +455,16 @@ const handleYTMStateUpdate = (state: unknown): void => {
             isPlaying: s.player?.trackState === 1,
             isShuffling: isShuffling,
             isRepeating: ytmRepeatMode > 0,
+            repeatMode: ytmRepeatMode,
             title: queueItem.title || s.video?.title || 'No Track',
             artist: queueItem.author || s.video?.author || 'No Artist',
             artUrl: '',
+            videoProgress: s.player?.videoProgress || 0,
+            durationSeconds: s.video?.durationSeconds || 0,
+            muted: s.player?.muted || false,
+            likeStatus: s.video?.likeStatus || 0,
         };
+        
         DeskThing.send({ type: 'YTM_STATE_UPDATE', payload: stateUpdate });
     });
 }

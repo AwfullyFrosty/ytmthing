@@ -1,15 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { DeskThing } from '@deskthing/client';
-import { /* Shuffle, */ Repeat, SkipBack, SkipForward, Play, Pause, Music } from 'lucide-react';
+import { /* Shuffle, */ Repeat, Repeat1, SkipBack, SkipForward, Play, Pause, Music, Heart, ThumbsDown, Volume2, VolumeX } from 'lucide-react';
 
 interface YTMState {
     isPlaying: boolean;
     // NOTE: Shuffle functionality temporarily disabled - YTM API doesn't properly support shuffle states currently but is in the works
     // isShuffling: boolean;
     isRepeating: boolean;
+    repeatMode: number; // 0 = off, 1 = all, 2 = one
     title: string;
     artist: string;
     artUrl: string;
+    videoProgress: number;
+    durationSeconds: number;
+    muted: boolean;
+    likeStatus: number; // -1 = unknown, 0 = disliked, 1 = indifferent, 2 = liked
 }
 
 interface ColorSettings {
@@ -108,6 +113,51 @@ const App: React.FC = () => {
     }, [send]);
 
     const control = (type: string) => () => send({ type });
+    
+    // Helper function to format seconds into MM:SS
+    const formatTime = (seconds: number): string => {
+        const mins = Math.floor(seconds / 60);
+        const secs = Math.floor(seconds % 60);
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    };
+    
+    // Handle progress bar click to seek
+    const [seekOverride, setSeekOverride] = useState<number | null>(null);
+    
+    // Clear seek override after a delay to let the server catch up
+    useEffect(() => {
+        if (seekOverride !== null) {
+            const timer = setTimeout(() => {
+                setSeekOverride(null);
+            }, 1000); // 1 second override
+            return () => clearTimeout(timer);
+        }
+    }, [seekOverride]);
+    
+    const handleProgressBarClick = (e: React.MouseEvent<HTMLDivElement>) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        const clickX = e.clientX - rect.left;
+        const progressWidth = rect.width;
+        const clickPercentage = Math.max(0, Math.min(1, clickX / progressWidth));
+        const duration = ytmState?.durationSeconds || 0;
+        const seekTime = Math.floor(clickPercentage * duration);
+        
+        // Validate seek position
+        if (seekTime < 0 || seekTime > duration || !duration) {
+            console.warn(`[Progress] Invalid seek position: ${seekTime}s (duration: ${duration}s)`);
+            return;
+        }
+        
+        setSeekOverride(seekTime);
+        send({ type: 'YTM_SEEK_TO', payload: { position: seekTime } });
+    };
+    
+    // Use seek override if recent, otherwise use actual progress
+    const displayProgress = seekOverride !== null ? seekOverride : (ytmState?.videoProgress || 0);
+    const displayPercentage = ytmState?.durationSeconds 
+        ? (displayProgress / ytmState.durationSeconds) * 100 
+        : 0;
+    
     const connectionStatus = connected && ytmState
         ? null
         : (
@@ -235,17 +285,126 @@ const App: React.FC = () => {
                                 opacity: ytmState?.isRepeating ? 1 : 0.5
                             }}
                         >
-                            <Repeat size={16} />
-                            <span>Repeat</span>
+                            {ytmState?.repeatMode === 2 ? <Repeat1 size={16} /> : <Repeat size={16} />}
+                            <span>
+                                {ytmState?.repeatMode === 0 ? 'Repeat Off' : 
+                                 ytmState?.repeatMode === 1 ? 'Repeat All' : 
+                                 ytmState?.repeatMode === 2 ? 'Repeat One' : 'Repeat'}
+                            </span>
                         </div>
                     </div>
                 </div>
 
+                {/* Like and Dislike Buttons */}
+                <div className="flex items-center justify-between mb-4">
+                    <button 
+                        onClick={control('YTM_TOGGLE_DISLIKE')} 
+                        className="p-2 rounded-full transition-all duration-200"
+                        style={{
+                            backgroundColor: ytmState?.likeStatus === 0 ? colorSettings.accentColor : colorSettings.buttonColor,
+                            color: ytmState?.likeStatus === 0 ? '#ffffff' : colorSettings.textColor
+                        }}
+                        title="Dislike"
+                        onMouseEnter={(e) => {
+                            if (ytmState?.likeStatus === 0) {
+                                e.currentTarget.style.filter = 'brightness(0.9)';
+                            } else {
+                                e.currentTarget.style.filter = 'brightness(1.2)';
+                            }
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.filter = 'brightness(1)';
+                        }}
+                    >
+                        <ThumbsDown size={18} fill={ytmState?.likeStatus === 0 ? '#ffffff' : 'none'} />
+                    </button>
+                    
+                    <button 
+                        onClick={control('YTM_TOGGLE_LIKE')} 
+                        className="p-2 rounded-full transition-all duration-200"
+                        style={{
+                            backgroundColor: ytmState?.likeStatus === 2 ? colorSettings.accentColor : colorSettings.buttonColor,
+                            color: ytmState?.likeStatus === 2 ? '#ffffff' : colorSettings.textColor
+                        }}
+                        title="Like"
+                        onMouseEnter={(e) => {
+                            if (ytmState?.likeStatus === 2) {
+                                e.currentTarget.style.filter = 'brightness(0.9)';
+                            } else {
+                                e.currentTarget.style.filter = 'brightness(1.2)';
+                            }
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.filter = 'brightness(1)';
+                        }}
+                    >
+                        <Heart size={18} fill={ytmState?.likeStatus === 2 ? '#ffffff' : 'none'} />
+                    </button>
+                </div>
+
+                {/* Progress Bar */}
+                <div className="flex items-center gap-3 mb-6">
+                    <span className="text-xs" style={{ color: colorSettings.textColor, opacity: 0.8 }}>
+                        {formatTime(displayProgress)}
+                    </span>
+                    
+                    <div 
+                        className="flex-1 h-4 rounded-full cursor-pointer relative py-1"
+                        style={{ backgroundColor: 'transparent' }}
+                        onClick={handleProgressBarClick}
+                    >
+                        {/* Track background */}
+                        <div 
+                            className="w-full h-2 rounded-full"
+                            style={{ backgroundColor: colorSettings.buttonColor }}
+                        />
+                        {/* Progress fill */}
+                        <div 
+                            className="absolute top-1 h-2 rounded-full transition-all duration-300"
+                            style={{
+                                backgroundColor: colorSettings.accentColor,
+                                width: `${displayPercentage}%`
+                            }}
+                        />
+                        {/* Progress handle */}
+                        <div 
+                            className="absolute top-1/2 transform -translate-y-1/2 w-4 h-4 rounded-full shadow-lg transition-all duration-300"
+                            style={{
+                                backgroundColor: colorSettings.accentColor,
+                                left: `calc(${displayPercentage}% - 8px)`
+                            }}
+                        />
+                    </div>
+                    
+                    <span className="text-xs" style={{ color: colorSettings.textColor, opacity: 0.8 }}>
+                        {formatTime(ytmState?.durationSeconds || 0)}
+                    </span>
+                </div>
+
                 {/* Control Buttons */}
-                <div className="flex items-center justify-between">
-                    {/* NOTE: Shuffle functionality temporarily disabled - YTM API doesn't properly support shuffle states currently but is in the works */}
-                    {/* Placeholder div to maintain layout spacing */}
-                    <div className="p-3 w-[44px] h-[44px]"></div>
+                <div className="flex items-center justify-between mb-4">
+                    {/* Mute/Unmute Button (replaces shuffle) */}
+                    <button 
+                        onClick={control(ytmState?.muted ? 'YTM_UNMUTE' : 'YTM_MUTE')} 
+                        className="p-3 rounded-full transition-all duration-200 shadow-lg"
+                        style={{
+                            backgroundColor: ytmState?.muted ? colorSettings.accentColor : colorSettings.buttonColor,
+                            color: ytmState?.muted ? '#ffffff' : colorSettings.textColor
+                        }}
+                        title={ytmState?.muted ? 'Unmute' : 'Mute'}
+                        onMouseEnter={(e) => {
+                            if (ytmState?.muted) {
+                                e.currentTarget.style.filter = 'brightness(0.9)';
+                            } else {
+                                e.currentTarget.style.filter = 'brightness(1.2)';
+                            }
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.filter = 'brightness(1)';
+                        }}
+                    >
+                        {ytmState?.muted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+                    </button>
                     
                     <button 
                         onClick={control('YTM_SKIP_PREVIOUS')} 
@@ -305,12 +464,12 @@ const App: React.FC = () => {
                         onClick={control('YTM_REPEAT_TOGGLE')} 
                         className="p-3 rounded-full transition-all duration-200 shadow-lg"
                         style={{
-                            backgroundColor: ytmState?.isRepeating ? colorSettings.accentColor : colorSettings.buttonColor,
-                            color: ytmState?.isRepeating ? '#ffffff' : colorSettings.textColor
+                            backgroundColor: ytmState?.repeatMode && ytmState.repeatMode > 0 ? colorSettings.accentColor : colorSettings.buttonColor,
+                            color: ytmState?.repeatMode && ytmState.repeatMode > 0 ? '#ffffff' : colorSettings.textColor
                         }}
-                        title="Toggle Repeat"
+                        title={`Toggle Repeat (${ytmState?.repeatMode === 0 ? 'Off' : ytmState?.repeatMode === 1 ? 'All' : ytmState?.repeatMode === 2 ? 'One' : 'Unknown'})`}
                         onMouseEnter={(e) => {
-                            if (ytmState?.isRepeating) {
+                            if (ytmState?.repeatMode && ytmState.repeatMode > 0) {
                                 e.currentTarget.style.filter = 'brightness(0.9)';
                             } else {
                                 e.currentTarget.style.filter = 'brightness(1.2)';
@@ -320,7 +479,7 @@ const App: React.FC = () => {
                             e.currentTarget.style.filter = 'brightness(1)';
                         }}
                     >
-                        <Repeat size={20} />
+                        {ytmState?.repeatMode === 2 ? <Repeat1 size={20} /> : <Repeat size={20} />}
                     </button>
                 </div>
             </div>

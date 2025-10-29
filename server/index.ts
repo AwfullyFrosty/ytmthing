@@ -49,6 +49,86 @@ let currentRepeatMode = 0;
 let currentShuffleState = false;
 let lastTrack = '';
 
+/** Get color values for a specific preset */
+const getColorPreset = (presetId: string) => {
+    const presets: { [key: string]: { backgroundColor: string; textColor: string; buttonColor: string; accentColor: string } } = {
+        'dark_modern': {
+            backgroundColor: '#000000',
+            textColor: '#ffffff',
+            buttonColor: '#374151',
+            accentColor: '#dc2626'
+        },
+        'ocean_blue': {
+            backgroundColor: '#0f172a',
+            textColor: '#e2e8f0',
+            buttonColor: '#1e40af',
+            accentColor: '#3b82f6'
+        },
+        'sakura_pink': {
+            backgroundColor: '#1a1a2e',
+            textColor: '#f8fafc',
+            buttonColor: '#4c1d95',
+            accentColor: '#ec4899'
+        },
+        'forest_green': {
+            backgroundColor: '#064e3b',
+            textColor: '#ecfdf5',
+            buttonColor: '#166534',
+            accentColor: '#10b981'
+        },
+        'sunset_orange': {
+            backgroundColor: '#431407',
+            textColor: '#fff7ed',
+            buttonColor: '#9a3412',
+            accentColor: '#f97316'
+        },
+        'royal_purple': {
+            backgroundColor: '#1e1b4b',
+            textColor: '#e0e7ff',
+            buttonColor: '#6366f1',
+            accentColor: '#a855f7'
+        },
+        'golden_night': {
+            backgroundColor: '#1c1917',
+            textColor: '#fbbf24',
+            buttonColor: '#451a03',
+            accentColor: '#f59e0b'
+        },
+        'ice_blue': {
+            backgroundColor: '#164e63',
+            textColor: '#ecfeff',
+            buttonColor: '#0e7490',
+            accentColor: '#06b6d4'
+        },
+        'rose_gold': {
+            backgroundColor: '#4c1d95',
+            textColor: '#fdf4ff',
+            buttonColor: '#be185d',
+            accentColor: '#f472b6'
+        },
+        'monochrome': {
+            backgroundColor: '#111827',
+            textColor: '#f3f4f6',
+            buttonColor: '#4b5563',
+            accentColor: '#9ca3af'
+        },
+        'cyberpunk': {
+            backgroundColor: '#0c0a09',
+            textColor: '#00ff88',
+            buttonColor: '#7c2d12',
+            accentColor: '#ff0080'
+        },
+        'arctic': {
+            backgroundColor: '#1e293b',
+            textColor: '#cbd5e1',
+            buttonColor: '#475569',
+            accentColor: '#0ea5e9'
+        }
+    };
+    
+    return presets[presetId] || presets['dark_modern'];
+};
+
 /** Clear authentication token from memory and disk */
 const clearAuthToken = () => {
     authToken = null;
@@ -438,12 +518,26 @@ DeskThing.on(DESKTHING_EVENTS.SETTINGS, (settings) => {
         ytmHost = settings.payload.host?.value?.toString() ?? '127.0.0.1';
         ytmPort = Number(settings.payload.port?.value) || 9863;
         autoReconnect = Boolean(settings.payload.autoReconnect?.value ?? true);
-        backgroundColor = settings.payload.backgroundColor?.value?.toString() ?? backgroundColor;
-        textColor = settings.payload.textColor?.value?.toString() ?? textColor;
-        buttonColor = settings.payload.buttonColor?.value?.toString() ?? buttonColor;
-        accentColor = settings.payload.accentColor?.value?.toString() ?? accentColor;
+        
+        // Handle color preset selection
+        const selectedPreset = settings.payload.colorPreset?.value?.toString() ?? 'dark_modern';
+        
+        if (selectedPreset === 'custom') {
+            // Use individual color settings when "Custom" is selected
+            backgroundColor = settings.payload.backgroundColor?.value?.toString() ?? backgroundColor;
+            textColor = settings.payload.textColor?.value?.toString() ?? textColor;
+            buttonColor = settings.payload.buttonColor?.value?.toString() ?? buttonColor;
+            accentColor = settings.payload.accentColor?.value?.toString() ?? accentColor;
+        } else {
+            // Apply preset colors
+            const preset = getColorPreset(selectedPreset);
+            backgroundColor = preset.backgroundColor;
+            textColor = preset.textColor;
+            buttonColor = preset.buttonColor;
+            accentColor = preset.accentColor;
+        }
 
-        console.log(`Settings updated: ${ytmHost}:${ytmPort}, autoReconnect: ${autoReconnect}`);
+        console.log(`Settings updated: ${ytmHost}:${ytmPort}, autoReconnect: ${autoReconnect}, preset: ${selectedPreset}`);
         
         // Send updated color settings to client
         DeskThing.send({

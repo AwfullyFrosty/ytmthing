@@ -28,11 +28,24 @@ const App: React.FC = () => {
     const { send } = clientInstance;
     const [ytmState, setYTMState] = useState<YTMState | null>(null);
     const [connected, setConnected] = useState(false);
-    const [colorSettings, setColorSettings] = useState<ColorSettings>({
-        backgroundColor: '#000000',
-        textColor: '#ffffff', 
-        buttonColor: '#374151',
-        accentColor: '#dc2626'
+    const [colorSettings, setColorSettings] = useState<ColorSettings>(() => {
+        // Try to load saved color settings from localStorage first
+        try {
+            const savedSettings = localStorage.getItem('ytmthing-color-settings');
+            if (savedSettings) {
+                return JSON.parse(savedSettings);
+            }
+        } catch (error) {
+            console.warn('Failed to load saved color settings:', error);
+        }
+        
+        // Fallback to default settings
+        return {
+            backgroundColor: '#000000',
+            textColor: '#ffffff', 
+            buttonColor: '#374151',
+            accentColor: '#dc2626'
+        };
     });
 
     useEffect(() => {
@@ -64,8 +77,22 @@ const App: React.FC = () => {
                 const payload = data.payload as ColorSettings;
                 if (payload) {
                     setColorSettings(payload);
+                    
+                    // Save the new color settings to localStorage for persistence
+                    try {
+                        localStorage.setItem('ytmthing-color-settings', JSON.stringify(payload));
+                    } catch (error) {
+                        console.warn('Failed to save color settings to localStorage:', error);
+                    }
                 }
             });
+        }
+        
+        // Request current color settings from server on mount
+        // This ensures we get the latest settings even if the server 
+        // has already sent them before this component mounted
+        if (typeof send === 'function') {
+            send({ type: 'YTM_REQUEST_COLOR_SETTINGS' });
         }
         
         return () => {
@@ -74,7 +101,7 @@ const App: React.FC = () => {
             unsubscribeShuffleUpdate();
             unsubscribeColorSettings();
         };
-    }, []);
+    }, [send]);
 
     const control = (type: string) => () => send({ type });
     const connectionStatus = connected && ytmState

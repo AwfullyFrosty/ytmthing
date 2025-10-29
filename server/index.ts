@@ -204,6 +204,19 @@ const setupClientListeners = (): void => {
     DeskThing.on('YTM_PLAY_QUEUE_INDEX', (data: { index?: number }) => executeControl('playQueueIndex', data?.index || 0));
     DeskThing.on('YTM_CHANGE_VIDEO', (data: { videoId?: string; playlistId?: string }) => 
         executeControl('changeVideo', data || { videoId: 'dQw4w9WgXcQ' }));
+    
+    // Handle color settings requests from client
+    DeskThing.on('YTM_REQUEST_COLOR_SETTINGS', () => {
+        DeskThing.send({
+            type: 'YTM_COLOR_SETTINGS',
+            payload: {
+                backgroundColor,
+                textColor,
+                buttonColor,
+                accentColor
+            }
+        });
+    });
 }
 
 /** Image cache directory in app root for artwork storage */

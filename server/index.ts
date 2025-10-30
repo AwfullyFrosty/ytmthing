@@ -47,6 +47,7 @@ const TOKEN_PATH = path.join(actualDirname, 'ytm_token.json');
 
 let ytmSocket: Socket | null = null;
 let authToken: string | null = null;
+let currentAuthStatus: { status: string; code?: string; message: string } | null = null; // Track current auth state
 let currentRepeatMode = 0;
 let currentVolume = 50; // Track current volume for wheel control
 let lastVolumeCommand = 0; // Debounce volume commands to prevent rate limiting
@@ -302,6 +303,35 @@ const setupClientListeners = (): void => {
             }
         });
     });
+    
+    // Handle auth status requests from client
+    DeskThing.on('YTM_REQUEST_AUTH_STATUS', () => {
+        // Send the current auth status if we have one
+        if (currentAuthStatus) {
+            DeskThing.send({
+                type: 'YTM_AUTH_STATUS',
+                payload: currentAuthStatus
+            });
+        } else if (authToken) {
+            // If we have an active auth token, we're authenticated
+            DeskThing.send({
+                type: 'YTM_AUTH_STATUS',
+                payload: {
+                    status: 'authenticated',
+                    message: 'Already authenticated with YTMDesktop'
+                }
+            });
+        } else {
+            // No token - likely in auth process or need to authenticate
+            DeskThing.send({
+                type: 'YTM_AUTH_STATUS',
+                payload: {
+                    status: 'not_authenticated',
+                    message: 'Not authenticated with YTMDesktop'
+                }
+            });
+        }
+    });
 }
 
 /** Image cache directory in app root for artwork storage */
@@ -535,9 +565,10 @@ const getYTMAuthToken = async (): Promise<string> => {
     }
 
     console.log('Requesting authentication code from YTMDesktop...');
+    currentAuthStatus = { status: 'requesting_code', message: 'Requesting auth code...' };
     DeskThing.send({ 
         type: 'YTM_AUTH_STATUS', 
-        payload: { status: 'requesting_code', message: 'Requesting auth code...' } 
+        payload: currentAuthStatus
     });
 
     const codeRes = await axios.post(`http://${ytmHost}:${ytmPort}/api/v1/auth/requestcode`, {
@@ -550,22 +581,29 @@ const getYTMAuthToken = async (): Promise<string> => {
     console.log('Please approve this code in the YTMDesktop app to continue.');
     
     // Display auth code in DeskThing interface
+    currentAuthStatus = { 
+        status: 'code_generated', 
+        code: code,
+        message: `Auth Code: ${code}\nApprove in YTMDesktop on your PC` 
+    };
     DeskThing.send({ 
         type: 'YTM_AUTH_STATUS', 
-        payload: { 
-            status: 'code_generated', 
-            code: code,
-            message: `Auth Code: ${code}\nApprove in YTMDesktop on your PC` 
-        } 
+        payload: currentAuthStatus
     });
 
     // Allow time for user to approve code in YTMDesktop
     await new Promise(resolve => setTimeout(resolve, 15000));
 
     console.log('Requesting token with approved code...');
+    // Keep the code visible during token request so user can still see it
+    currentAuthStatus = { 
+        status: 'requesting_token', 
+        code: code, // Preserve the code during token request
+        message: `Getting auth token...\nCode: ${code}` 
+    };
     DeskThing.send({ 
         type: 'YTM_AUTH_STATUS', 
-        payload: { status: 'requesting_token', message: 'Getting auth token...' } 
+        payload: currentAuthStatus
     });
 
     const tokenRes = await axios.post(`http://${ytmHost}:${ytmPort}/api/v1/auth/request`, {
@@ -582,11 +620,14 @@ const getYTMAuthToken = async (): Promise<string> => {
     }
     
     console.log('YTMDesktop authenticated successfully.');
+    currentAuthStatus = { status: 'authenticated', message: 'Successfully authenticated!' };
     DeskThing.send({ 
         type: 'YTM_AUTH_STATUS', 
-        payload: { status: 'authenticated', message: 'Successfully authenticated!' } 
+        payload: currentAuthStatus
     });
     authToken = token;
+    // Clear auth status after successful authentication since we don't need it anymore
+    setTimeout(() => { currentAuthStatus = null; }, 3000);
     return token;
 };
 

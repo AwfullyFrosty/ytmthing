@@ -36,6 +36,7 @@ const App: React.FC = () => {
     const [ytmState, setYTMState] = useState<YTMState | null>(null);
     const [connected, setConnected] = useState(false);
     const [volumeIndicator, setVolumeIndicator] = useState<{ show: boolean; volume: number }>({ show: false, volume: 0 });
+    const [authStatus, setAuthStatus] = useState<{ status: string; code?: string; message: string } | null>(null);
     const [colorSettings, setColorSettings] = useState<ColorSettings>(() => {
         // Try to load saved color settings from localStorage first
         try {
@@ -63,6 +64,7 @@ const App: React.FC = () => {
         // NOTE: Shuffle functionality temporarily disabled - YTM API doesn't properly support shuffle states currently but is in the works
         // let unsubscribeShuffleUpdate = () => {};
         let unsubscribeColorSettings = () => {};
+        let unsubscribeAuthStatus = () => {};
         
         if (typeof DeskThing.on === 'function') {
             unsubscribeError = DeskThing.on('error', (err: unknown) => {
@@ -104,13 +106,26 @@ const App: React.FC = () => {
                     }
                 }
             });
+            
+            unsubscribeAuthStatus = DeskThing.on('YTM_AUTH_STATUS', (data: { type: string; payload: unknown }) => {
+                const payload = data.payload as { status: string; code?: string; message: string };
+                if (payload) {
+                    setAuthStatus(payload);
+                    
+                    // Clear auth status after successful authentication
+                    if (payload.status === 'authenticated') {
+                        setTimeout(() => setAuthStatus(null), 3000);
+                    }
+                }
+            });
         }
         
-        // Request current color settings from server on mount
+        // Request current color settings and auth status from server on mount
         // This ensures we get the latest settings even if the server 
         // has already sent them before this component mounted
         if (typeof send === 'function') {
             send({ type: 'YTM_REQUEST_COLOR_SETTINGS' });
+            send({ type: 'YTM_REQUEST_AUTH_STATUS' });
         }
         
         return () => {
@@ -120,6 +135,7 @@ const App: React.FC = () => {
             // NOTE: Shuffle functionality temporarily disabled - YTM API doesn't properly support shuffle states currently but is in the works
             // unsubscribeShuffleUpdate();
             unsubscribeColorSettings();
+            unsubscribeAuthStatus();
         };
     }, [send]);
 
@@ -209,14 +225,65 @@ const App: React.FC = () => {
         ? null
         : (
             <div 
-                className="absolute inset-0 flex flex-col justify-center items-center p-4"
+                className="absolute inset-0 flex flex-col justify-center items-center p-4 z-50"
                 style={{ 
                     backgroundColor: colorSettings.backgroundColor + 'E6', // 90% opacity
                     color: colorSettings.textColor
                 }}
             >
-                <h1 className="text-xl font-semibold">Connecting...</h1>
-                <p className="text-sm">{connected ? 'Waiting for music data...' : 'Waiting for Server...'}</p>
+                <h1 className="text-xl font-semibold">
+                    {authStatus?.status === 'authenticated' ? 'Connected!' : 
+                     authStatus?.status === 'code_generated' ? 'Authentication Required' :
+                     authStatus?.status === 'requesting_token' ? 'Waiting for Approval' :
+                     'Connecting...'}
+                </h1>
+                <p className="text-sm mb-4">
+                    {authStatus?.status === 'code_generated' ? 'Enter this code in YTMDesktop:' :
+                     authStatus?.status === 'requesting_token' ? 'Please approve the code in YTMDesktop' :
+                     authStatus?.message || (connected ? 'Waiting for music data...' : 'Waiting for Server...')}
+                </p>
+                
+
+                
+                {/* Show auth code prominently when available */}
+                {authStatus?.code && (
+                    <div 
+                        className="rounded-lg p-6 border-2 text-center"
+                        style={{ 
+                            backgroundColor: colorSettings.accentColor + '33', // 20% opacity
+                            borderColor: colorSettings.accentColor,
+                            color: colorSettings.textColor
+                        }}
+                    >
+                        <div 
+                            className="text-lg font-bold mb-3"
+                            style={{ color: colorSettings.textColor }}
+                        >
+                            Auth Code
+                        </div>
+                        <div 
+                            className="text-4xl font-mono font-bold tracking-wider mb-3"
+                            style={{ 
+                                color: colorSettings.textColor,
+                                backgroundColor: colorSettings.backgroundColor,
+                                padding: '8px 16px',
+                                borderRadius: '8px',
+                                border: `2px solid ${colorSettings.accentColor}`
+                            }}
+                        >
+                            {authStatus.code}
+                        </div>
+                        <div 
+                            className="text-sm mt-2"
+                            style={{ color: colorSettings.textColor, opacity: 0.9 }}
+                        >
+                            {authStatus.status === 'requesting_token' 
+                                ? 'Waiting for approval in YTMDesktop...' 
+                                : 'Approve this code in YTMDesktop on your PC'
+                            }
+                        </div>
+                    </div>
+                )}
             </div>
         );
 

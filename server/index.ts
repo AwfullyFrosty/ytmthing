@@ -38,6 +38,8 @@ let backgroundColor = '#000000';
 let textColor = '#ffffff';
 let buttonColor = '#374151';
 let accentColor = '#dc2626';
+let volumeStep = 5; // Volume step size for wheel control (1-20)
+
 
 const getYTMApiUrl = () => `http://${ytmHost}:${ytmPort}/api/v1/`;
 const getYTMSocketUrl = () => `ws://${ytmHost}:${ytmPort}/api/v1/realtime`;
@@ -46,6 +48,8 @@ const TOKEN_PATH = path.join(actualDirname, 'ytm_token.json');
 let ytmSocket: Socket | null = null;
 let authToken: string | null = null;
 let currentRepeatMode = 0;
+let currentVolume = 50; // Track current volume for wheel control
+let lastVolumeCommand = 0; // Debounce volume commands to prevent rate limiting
 // NOTE: Shuffle functionality temporarily disabled - YTM API doesn't properly support shuffle states currently but is in the works
 // let currentShuffleState = false;
 let lastTrack = '';
@@ -236,8 +240,46 @@ const setupClientListeners = (): void => {
         await executeControl('repeatMode', nextRepeat);
     });
     
-    DeskThing.on('YTM_VOLUME_UP', () => executeControl('volumeUp'));
-    DeskThing.on('YTM_VOLUME_DOWN', () => executeControl('volumeDown'));
+    DeskThing.on('YTM_VOLUME_UP', async () => {
+        const now = Date.now();
+        lastVolumeCommand = now;
+        
+        // Step volume up by configurable amount using tracked volume
+        const newVolume = Math.min(100, currentVolume + volumeStep);
+        currentVolume = newVolume;
+        
+        await executeControl('setVolume', newVolume);
+        console.log(`[Volume] Increased by ${volumeStep} to ${newVolume}`);
+        
+        // Send volume update to client for visual indicator
+        DeskThing.send({
+            type: 'YTM_VOLUME_UPDATE',
+            payload: { volume: newVolume }
+        });
+    });
+    DeskThing.on('YTM_VOLUME_DOWN', async () => {
+        const now = Date.now();
+        
+        // Debounce volume commands to prevent rate limiting (150ms minimum between commands)
+        if (now - lastVolumeCommand < 150) {
+            console.log(`[Volume] Ignoring rapid volume down command (${now - lastVolumeCommand}ms since last)`);
+            return;
+        }
+        lastVolumeCommand = now;
+        
+        // Step volume down by configurable amount using tracked volume
+        const newVolume = Math.max(0, currentVolume - volumeStep);
+        currentVolume = newVolume;
+        
+        await executeControl('setVolume', newVolume);
+        console.log(`[Volume] Decreased by ${volumeStep} to ${newVolume}`);
+        
+        // Send volume update to client for visual indicator
+        DeskThing.send({
+            type: 'YTM_VOLUME_UPDATE',
+            payload: { volume: newVolume }
+        });
+    });
     DeskThing.on('YTM_SET_VOLUME', (data: { volume?: number }) => executeControl('setVolume', data?.volume || 50));
     DeskThing.on('YTM_MUTE', () => executeControl('mute'));
     DeskThing.on('YTM_UNMUTE', () => executeControl('unmute'));
@@ -423,6 +465,12 @@ const handleYTMStateUpdate = (state: unknown): void => {
     const isShuffling = false; // Hardcoded to false since shuffle is disabled
     const ytmRepeatMode = s.player?.queue?.repeatMode ?? 0;
     currentRepeatMode = ytmRepeatMode;
+    
+    // Update current volume for wheel control
+    if (s.player?.volume !== undefined) {
+        currentVolume = s.player.volume;
+    }
+    
     const currentTrack = `${queueItem.title || s.video?.title || 'No Track'} - ${queueItem.author || s.video?.author || 'No Artist'}`;
     
     // Process artwork asynchronously to avoid blocking state updates
@@ -438,6 +486,7 @@ const handleYTMStateUpdate = (state: unknown): void => {
             artUrl: finalArtUrl,
             videoProgress: s.player?.videoProgress || 0,
             durationSeconds: s.video?.durationSeconds || 0,
+            volume: s.player?.volume,
             muted: s.player?.muted || false,
             likeStatus: s.video?.likeStatus || 0,
         };
@@ -461,6 +510,7 @@ const handleYTMStateUpdate = (state: unknown): void => {
             artUrl: '',
             videoProgress: s.player?.videoProgress || 0,
             durationSeconds: s.video?.durationSeconds || 0,
+            volume: s.player?.volume,
             muted: s.player?.muted || false,
             likeStatus: s.video?.likeStatus || 0,
         };
@@ -589,6 +639,7 @@ DeskThing.on(DESKTHING_EVENTS.SETTINGS, (settings) => {
         ytmHost = settings.payload.host?.value?.toString() ?? '127.0.0.1';
         ytmPort = Number(settings.payload.port?.value) || 9863;
         autoReconnect = Boolean(settings.payload.autoReconnect?.value ?? true);
+        volumeStep = Number(settings.payload.volumeStep?.value) || 5;
         
         // Handle color preset selection
         const selectedPreset = settings.payload.colorPreset?.value?.toString() ?? 'dark_modern';
@@ -608,7 +659,7 @@ DeskThing.on(DESKTHING_EVENTS.SETTINGS, (settings) => {
             accentColor = preset.accentColor;
         }
 
-        console.log(`Settings updated: ${ytmHost}:${ytmPort}, autoReconnect: ${autoReconnect}, preset: ${selectedPreset}`);
+        console.log(`Settings updated: ${ytmHost}:${ytmPort}, autoReconnect: ${autoReconnect}, volumeStep: ${volumeStep}, preset: ${selectedPreset}`);
         
         // Send updated color settings to client
         DeskThing.send({

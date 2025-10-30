@@ -13,6 +13,7 @@ interface YTMState {
     artUrl: string;
     videoProgress: number;
     durationSeconds: number;
+    volume?: number;
     muted: boolean;
     likeStatus: number; // -1 = unknown, 0 = disliked, 1 = indifferent, 2 = liked
 }
@@ -34,6 +35,7 @@ const App: React.FC = () => {
     const { send } = clientInstance;
     const [ytmState, setYTMState] = useState<YTMState | null>(null);
     const [connected, setConnected] = useState(false);
+    const [volumeIndicator, setVolumeIndicator] = useState<{ show: boolean; volume: number }>({ show: false, volume: 0 });
     const [colorSettings, setColorSettings] = useState<ColorSettings>(() => {
         // Try to load saved color settings from localStorage first
         try {
@@ -57,6 +59,7 @@ const App: React.FC = () => {
     useEffect(() => {
         let unsubscribeError = () => {};
         let unsubscribeState = () => {};
+        let unsubscribeVolumeUpdate = () => {};
         // NOTE: Shuffle functionality temporarily disabled - YTM API doesn't properly support shuffle states currently but is in the works
         // let unsubscribeShuffleUpdate = () => {};
         let unsubscribeColorSettings = () => {};
@@ -71,6 +74,13 @@ const App: React.FC = () => {
                 const payload = data.payload as YTMState;
                 setYTMState(payload);
                 setConnected(true);
+            });
+            
+            unsubscribeVolumeUpdate = DeskThing.on('YTM_VOLUME_UPDATE', (data: { type: string; payload: unknown }) => {
+                const payload = data.payload as { volume: number };
+                if (payload && typeof payload.volume === 'number') {
+                    setVolumeIndicator({ show: true, volume: payload.volume });
+                }
             });
             
             // NOTE: Shuffle functionality temporarily disabled - YTM API doesn't properly support shuffle states currently but is in the works
@@ -106,9 +116,46 @@ const App: React.FC = () => {
         return () => {
             unsubscribeError();
             unsubscribeState();
+            unsubscribeVolumeUpdate();
             // NOTE: Shuffle functionality temporarily disabled - YTM API doesn't properly support shuffle states currently but is in the works
             // unsubscribeShuffleUpdate();
             unsubscribeColorSettings();
+        };
+    }, [send]);
+
+    // Auto-hide volume indicator after 4 seconds
+    useEffect(() => {
+        if (volumeIndicator.show) {
+            const timer = setTimeout(() => {
+                setVolumeIndicator(prev => ({ ...prev, show: false }));
+            }, 4000);
+            return () => clearTimeout(timer);
+        }
+    }, [volumeIndicator.show]);
+
+    // Handle wheel events for volume control
+    useEffect(() => {
+        const handleWheel = (e: WheelEvent) => {
+            // Prevent default behavior and stop propagation to override system volume control
+            e.preventDefault();
+            e.stopPropagation();
+            
+            // Determine scroll direction (handle both X and Y for compatibility)
+            const isUp = e.deltaX > 0 || e.deltaY < 0;
+            
+            // Send volume control commands (stepping by 5 each turn)
+            if (isUp) {
+                send({ type: 'YTM_VOLUME_UP' });
+            } else {
+                send({ type: 'YTM_VOLUME_DOWN' });
+            }
+        };
+
+        // Add event listener with passive: false to allow preventDefault
+        document.addEventListener("wheel", handleWheel, { passive: false });
+        
+        return () => {
+            document.removeEventListener("wheel", handleWheel);
         };
     }, [send]);
 
@@ -483,6 +530,66 @@ const App: React.FC = () => {
                     </button>
                 </div>
             </div>
+
+            {/* Volume Indicator Overlay */}
+            {volumeIndicator.show && (
+                <div 
+                    className="absolute inset-0 flex items-center justify-center pointer-events-none"
+                    style={{ 
+                        backgroundColor: colorSettings.backgroundColor + '90', // 56% opacity
+                        zIndex: 30
+                    }}
+                >
+                    <div 
+                        className="flex items-center gap-4 px-8 py-6 rounded-2xl shadow-2xl"
+                        style={{ 
+                            backgroundColor: colorSettings.buttonColor + 'E6', // 90% opacity
+                            border: `2px solid ${colorSettings.accentColor}`,
+                        }}
+                    >
+                        {/* Volume Icon */}
+                        <Volume2 
+                            size={32} 
+                            style={{ color: colorSettings.accentColor }}
+                        />
+                        
+                        {/* Volume Bar */}
+                        <div className="flex flex-col items-center gap-2">
+                            <div 
+                                className="w-80 h-4 rounded-full relative"
+                                style={{ backgroundColor: colorSettings.backgroundColor + '80' }} // 50% opacity
+                            >
+                                {/* Volume fill */}
+                                <div 
+                                    className="h-full rounded-full transition-all duration-200"
+                                    style={{
+                                        backgroundColor: colorSettings.accentColor,
+                                        width: `${volumeIndicator.volume}%`
+                                    }}
+                                />
+                                
+                                {/* Volume handle */}
+                                <div 
+                                    className="absolute top-1/2 transform -translate-y-1/2 w-6 h-6 rounded-full shadow-lg transition-all duration-200"
+                                    style={{
+                                        backgroundColor: colorSettings.accentColor,
+                                        left: `calc(${volumeIndicator.volume}% - 12px)`,
+                                        border: `2px solid ${colorSettings.textColor}`
+                                    }}
+                                />
+                            </div>
+                            
+                            {/* Volume percentage text */}
+                            <span 
+                                className="text-2xl font-bold"
+                                style={{ color: colorSettings.textColor }}
+                            >
+                                {Math.round(volumeIndicator.volume)}%
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Connection Status Overlay */}
             {connectionStatus}

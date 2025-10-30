@@ -74,6 +74,21 @@ export const setupSettings = async () => {
             label: 'Accent Color',
             value: '#dc2626',
         },
+        volumeStep: {
+            id: 'volumeStep',
+            type: SETTING_TYPES.SELECT,
+            description: 'How much the volume changes when scrolling the wheel. Choose between fine control (1), default (5), or coarse control (10). The more fine tune it is the slower the volume will change due to the increased number of steps.',
+            label: 'Volume Step Size',
+            value: '5',
+            options: [
+                { value: '1', label: '1 - Very Fine Control' },
+                { value: '2', label: '2 - Fine Control' },
+                { value: '5', label: '5 - Default' },
+                { value: '10', label: '10 - Coarse Control' },
+                { value: '15', label: '15 - Very Coarse' },
+                { value: '20', label: '20 - Maximum' }
+            ]
+        },
     }
     DeskThing.initSettings(Settings);
 };

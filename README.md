@@ -64,6 +64,7 @@ THIS IS STILL IN EARLY DEVELOPMENT
 1. Download and install [YTMDesktop](https://github.com/ytmdesktop/ytmdesktop)
 2. Enable the Companion API in YTMDesktop settings
 <img width="585" height="412" alt="image" src="https://github.com/user-attachments/assets/768aff95-3ced-45cd-89c9-eb29503cf9fb" />
+
 (Make sure to enable companion auth before trying the setup. This is a onetime setup option)
 3. Ensure it's running on the default port (9863) (current versions dont let you select port)
 

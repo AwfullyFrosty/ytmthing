@@ -1,9 +1,9 @@
 {
-  "id": "ytmdthing",
+  "id": "ytmthing",
   "requires": [],
   "label": "YTMThing", 
   "version": "1.0.0",
-  "description": "YouTube Music controller for DeskThing with smart artwork loading and comprehensive playback controls",
+  "description": "YouTube Music Desktop controller for DeskThing",
   "author": "BaileyWatkinsCS",
   "platforms": [
     "windows",

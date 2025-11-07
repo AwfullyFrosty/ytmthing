@@ -25,19 +25,13 @@ THIS IS STILL IN EARLY DEVELOPMENT
 - **Visual Feedback**: Clear active state indicators for repeat modes
 - **Responsive Layout**: Left panel artwork + right panel controls and track info
 
-## Architecture
+### 🎛️ **Setting/Custimization Options**
 
-### **Frontend (React + TypeScript)**
-- **Real-time UI**: Receives state updates via DeskThing WebSocket connection
-- **Event Handling**: Sends control commands back to server
-- **Image Management**: Handles artwork loading with smart retry logic
-- **State Management**: Tracks current track, play state, shuffle/repeat modes
+<img width="2860" height="1133" alt="image" src="https://github.com/user-attachments/assets/753e6b69-0ba1-48fa-99de-57062c9f8847" />
 
-### **Backend (Node.js + TypeScript)**  
-- **YTMDesktop Integration**: Connects to YTMDesktop Companion API via Socket.IO
-- **Authentication**: Handles YTMDesktop auth code flow with token persistence
-- **Command Relay**: Translates DeskThing commands to YTMDesktop API calls
-- **State Processing**: Processes raw YTMDesktop state into clean frontend format
+- **Color Presets**: There is a large list of pre-created color profiles to allow for your personal customization
+- **Custom Colors**: In the presets there is a cuztome color profile which allow the user to set the colors they desire
+- **Volume Stepping**: Allows the user to set the steps in which volume changes for more fine control (The lower you go the laggier it can be due to rate limits)
 
 ### **Key Components**
 ```
@@ -53,6 +47,7 @@ THIS IS STILL IN EARLY DEVELOPMENT
 - **YTMDesktop**: Must be running with Companion API enabled on port 9863
 - **DeskThing**: Compatible DeskThing environment for deployment
 - **Node.js**: Version 16+ for server-side JavaScript execution
+- **Windows**: Currently only created for windows so i'm unsure how this will work on Mac or Linux
 
 ### **Network**
 - **Local Connection**: Connects to `127.0.0.1:9863` for maximum reliability

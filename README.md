@@ -2,6 +2,8 @@
 
 A DeskThing application that provides a sleek interface for controlling YouTube Music through YTMDesktop, designed specifically for car dashboard displays and small screens.
 
+THIS IS STILL IN EARLY DEVELOPMENT
+
 ## Features
 
 ### 🎵 **Complete YouTube Music Control**

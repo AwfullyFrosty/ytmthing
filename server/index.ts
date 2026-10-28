@@ -44,18 +44,42 @@ let volumeStep = 5; // Volume step size for wheel control (1-20)
 const getYTMApiUrl = () => `http://${ytmHost}:${ytmPort}/api/v1/`;
 const getYTMSocketUrl = () => `ws://${ytmHost}:${ytmPort}/api/v1/realtime`;
 const TOKEN_PATH = path.join(actualDirname, 'ytm_token.json');
+const VOLUME_PATH = path.join(actualDirname, 'ytm_volume.json');
+
+const readSavedVolume = (): number | null => {
+    try {
+        if (!fs.existsSync(VOLUME_PATH)) return null;
+        const saved = JSON.parse(fs.readFileSync(VOLUME_PATH, 'utf8')) as { volume?: number };
+        return typeof saved.volume === 'number' && Number.isFinite(saved.volume)
+            ? Math.max(0, Math.min(100, saved.volume))
+            : null;
+    } catch (error) {
+        console.warn('[Volume] Failed to read saved volume:', error);
+        return null;
+    }
+};
+
+const saveVolume = (volume: number): void => {
+    try {
+        fs.writeFileSync(VOLUME_PATH, JSON.stringify({ volume }), 'utf8');
+    } catch (error) {
+        console.warn('[Volume] Failed to save volume:', error);
+    }
+};
 
 let ytmSocket: Socket | null = null;
 let authToken: string | null = null;
 let currentAuthStatus: { status: string; code?: string; message: string } | null = null; // Track current auth state
 let currentRepeatMode = 0;
-let currentVolume = 50; // Track current volume for wheel control
+let currentVolume: number | null = null; // Reconciled with YTMDesktop after connection
+let lastKnownVolume = readSavedVolume();
+let awaitingInitialVolume = false;
+let pendingVolumeTarget: number | null = null;
+let pendingVolumeSince = 0;
 let lastVolumeCommand = 0; // Debounce volume commands to prevent rate limiting
-// NOTE: Shuffle functionality temporarily disabled - YTM API doesn't properly support shuffle states currently but is in the works
-// let currentShuffleState = false;
 let lastTrack = '';
-// let lastShuffleToggle = 0;
 let clientListenersSetup = false;
+let settingsInitialized = false;
 
 /** Get color values for a specific preset */
 const getColorPreset = (presetId: string) => {
@@ -152,7 +176,7 @@ const clearAuthToken = () => {
  * Execute a command on YTMDesktop via API
  * Handles authentication and error recovery automatically
  */
-const executeControl = async (command: string, data?: unknown): Promise<void> => {
+const executeControl = async (command: string, data?: unknown): Promise<boolean> => {
     const payload: { command: string; data?: unknown } = { command };
     if (data !== undefined) payload.data = data;
     
@@ -168,6 +192,7 @@ const executeControl = async (command: string, data?: unknown): Promise<void> =>
         
         await axios.post(getYTMApiUrl() + 'command', payload, { headers });
         console.log(`[API] Command ${command} executed successfully`);
+        return true;
         
     } catch (err) {
         if (axios.isAxiosError(err)) {
@@ -190,6 +215,7 @@ const executeControl = async (command: string, data?: unknown): Promise<void> =>
             const errorMessage = (err instanceof Error) ? err.message : 'Unknown API error';
             console.error(`Error executing ${command}: ${errorMessage}`);
         }
+        return false;
     }
 }
 
@@ -201,40 +227,17 @@ const setupClientListeners = (): void => {
     }
     clientListenersSetup = true;
     console.log('[Setup] Setting up client event listeners');
-    DeskThing.on('YTM_PLAY_PAUSE_TOGGLE', () => executeControl('playPause'));
-    DeskThing.on('YTM_PLAY', () => executeControl('play'));
-    DeskThing.on('YTM_PAUSE', () => executeControl('pause'));
-    DeskThing.on('YTM_SKIP_NEXT', () => executeControl('next'));
-    DeskThing.on('YTM_SKIP_PREVIOUS', () => executeControl('previous'));
+    DeskThing.on('YTM_PLAY_PAUSE_TOGGLE', () => { void executeControl('playPause'); });
+    DeskThing.on('YTM_PLAY', () => { void executeControl('play'); });
+    DeskThing.on('YTM_PAUSE', () => { void executeControl('pause'); });
+    DeskThing.on('YTM_SKIP_NEXT', () => { void executeControl('next'); });
+    DeskThing.on('YTM_SKIP_PREVIOUS', () => { void executeControl('previous'); });
     
-    // NOTE: Shuffle functionality temporarily disabled - YTM API doesn't properly support shuffle states currently but is in the works
-    // DeskThing.on('YTM_SHUFFLE_TOGGLE', async () => {
-    //     const now = Date.now();
-        
-    //     // Prevent rapid duplicate toggles (debounce for 500ms)
-    //     if (now - lastShuffleToggle < 500) {
-    //         console.log(`[Shuffle] Ignoring rapid toggle (${now - lastShuffleToggle}ms since last)`);
-    //         return;
-    //     }
-    //     lastShuffleToggle = now;
-        
-    //     console.log(`[Shuffle] Processing toggle command`);
-    //     await executeControl('shuffle');
-        
-    //     // Since YTMDesktop doesn't provide shuffle state in its updates, we track it locally
-    //     currentShuffleState = !currentShuffleState;
-    //     console.log(`[Shuffle] Local state toggled to: ${currentShuffleState}`);
-        
-    //     // Send immediate update to client with new shuffle state
-    //     DeskThing.send({ 
-    //         type: 'YTM_SHUFFLE_STATE_UPDATE', 
-    //         payload: { isShuffling: currentShuffleState } 
-    //     });
-    // });
+    DeskThing.on('YTM_SHUFFLE', () => { void executeControl('shuffle'); });
     
-    DeskThing.on('YTM_REPEAT_OFF', () => executeControl('repeatMode', 0));
-    DeskThing.on('YTM_REPEAT_ALL', () => executeControl('repeatMode', 1));
-    DeskThing.on('YTM_REPEAT_ONE', () => executeControl('repeatMode', 2));
+    DeskThing.on('YTM_REPEAT_OFF', () => { void executeControl('repeatMode', 0); });
+    DeskThing.on('YTM_REPEAT_ALL', () => { void executeControl('repeatMode', 1); });
+    DeskThing.on('YTM_REPEAT_ONE', () => { void executeControl('repeatMode', 2); });
     DeskThing.on('YTM_REPEAT_TOGGLE', async () => {
         const nextRepeat = (currentRepeatMode + 1) % 3;
         currentRepeatMode = nextRepeat;
@@ -243,14 +246,32 @@ const setupClientListeners = (): void => {
     
     DeskThing.on('YTM_VOLUME_UP', async () => {
         const now = Date.now();
+        if (currentVolume === null) {
+            console.warn('[Volume] Ignoring increase until YTMDesktop reports the current volume');
+            return;
+        }
+        if (now - lastVolumeCommand < 150) {
+            console.log(`[Volume] Ignoring rapid volume up command (${now - lastVolumeCommand}ms since last)`);
+            return;
+        }
         lastVolumeCommand = now;
         
-        // Step volume up by configurable amount using tracked volume
+        // Step volume up by the latest reconciled volume.
+        const previousVolume = currentVolume;
         const newVolume = Math.min(100, currentVolume + volumeStep);
         currentVolume = newVolume;
+        pendingVolumeTarget = newVolume;
+        pendingVolumeSince = now;
         
-        await executeControl('setVolume', newVolume);
-        console.log(`[Volume] Increased by ${volumeStep} to ${newVolume}`);
+        const succeeded = await executeControl('setVolume', newVolume);
+        if (succeeded) {
+            lastKnownVolume = newVolume;
+            saveVolume(newVolume);
+            console.log(`[Volume] Increased by ${volumeStep} to ${newVolume}`);
+        } else if (currentVolume === newVolume) {
+            currentVolume = previousVolume;
+            pendingVolumeTarget = null;
+        }
         
         // Send volume update to client for visual indicator
         DeskThing.send({
@@ -260,6 +281,10 @@ const setupClientListeners = (): void => {
     });
     DeskThing.on('YTM_VOLUME_DOWN', async () => {
         const now = Date.now();
+        if (currentVolume === null) {
+            console.warn('[Volume] Ignoring decrease until YTMDesktop reports the current volume');
+            return;
+        }
         
         // Debounce volume commands to prevent rate limiting (150ms minimum between commands)
         if (now - lastVolumeCommand < 150) {
@@ -268,12 +293,22 @@ const setupClientListeners = (): void => {
         }
         lastVolumeCommand = now;
         
-        // Step volume down by configurable amount using tracked volume
+        // Step volume down by the latest reconciled volume.
+        const previousVolume = currentVolume;
         const newVolume = Math.max(0, currentVolume - volumeStep);
         currentVolume = newVolume;
+        pendingVolumeTarget = newVolume;
+        pendingVolumeSince = now;
         
-        await executeControl('setVolume', newVolume);
-        console.log(`[Volume] Decreased by ${volumeStep} to ${newVolume}`);
+        const succeeded = await executeControl('setVolume', newVolume);
+        if (succeeded) {
+            lastKnownVolume = newVolume;
+            saveVolume(newVolume);
+            console.log(`[Volume] Decreased by ${volumeStep} to ${newVolume}`);
+        } else if (currentVolume === newVolume) {
+            currentVolume = previousVolume;
+            pendingVolumeTarget = null;
+        }
         
         // Send volume update to client for visual indicator
         DeskThing.send({
@@ -281,18 +316,39 @@ const setupClientListeners = (): void => {
             payload: { volume: newVolume }
         });
     });
-    DeskThing.on('YTM_SET_VOLUME', (data: { volume?: number }) => executeControl('setVolume', data?.volume || 50));
-    DeskThing.on('YTM_MUTE', () => executeControl('mute'));
-    DeskThing.on('YTM_UNMUTE', () => executeControl('unmute'));
-    DeskThing.on('YTM_SEEK_TO', (data: { payload?: { position?: number } }) => executeControl('seekTo', data?.payload?.position || 0));
-    DeskThing.on('YTM_TOGGLE_LIKE', () => executeControl('toggleLike'));
-    DeskThing.on('YTM_TOGGLE_DISLIKE', () => executeControl('toggleDislike'));
-    DeskThing.on('YTM_PLAY_QUEUE_INDEX', (data: { index?: number }) => executeControl('playQueueIndex', data?.index || 0));
-    DeskThing.on('YTM_CHANGE_VIDEO', (data: { videoId?: string; playlistId?: string }) => 
-        executeControl('changeVideo', data || { videoId: 'dQw4w9WgXcQ' }));
+    DeskThing.on('YTM_SET_VOLUME', (data: { volume?: number }) => {
+        const volume = data?.volume;
+        if (typeof volume === 'number' && Number.isFinite(volume)) {
+            currentVolume = Math.max(0, Math.min(100, volume));
+            pendingVolumeTarget = currentVolume;
+            pendingVolumeSince = Date.now();
+            void executeControl('setVolume', currentVolume).then((succeeded) => {
+                if (succeeded && currentVolume !== null) {
+                    lastKnownVolume = currentVolume;
+                    saveVolume(currentVolume);
+                }
+            });
+        }
+    });
+    DeskThing.on('YTM_MUTE', () => { void executeControl('mute'); });
+    DeskThing.on('YTM_UNMUTE', () => { void executeControl('unmute'); });
+    DeskThing.on('YTM_SEEK_TO', (data: { payload?: { position?: number } }) => {
+        void executeControl('seekTo', data?.payload?.position || 0);
+    });
+    DeskThing.on('YTM_TOGGLE_LIKE', () => { void executeControl('toggleLike'); });
+    DeskThing.on('YTM_TOGGLE_DISLIKE', () => { void executeControl('toggleDislike'); });
+    DeskThing.on('YTM_PLAY_QUEUE_INDEX', (data: { index?: number }) => {
+        void executeControl('playQueueIndex', data?.index || 0);
+    });
+    DeskThing.on('YTM_CHANGE_VIDEO', (data: { videoId?: string; playlistId?: string }) => {
+        void executeControl('changeVideo', data || { videoId: 'dQw4w9WgXcQ' });
+    });
     
     // Handle color settings requests from client
     DeskThing.on('YTM_REQUEST_COLOR_SETTINGS', () => {
+        if (!settingsInitialized) {
+            return;
+        }
         DeskThing.send({
             type: 'YTM_COLOR_SETTINGS',
             payload: {
@@ -490,15 +546,46 @@ const handleYTMStateUpdate = (state: unknown): void => {
             artUrl = getThumbnailUrl(counterpart.thumbnails);
         }
     }
-    // NOTE: Shuffle functionality temporarily disabled - YTM API doesn't properly support shuffle states currently but is in the works
-    // const isShuffling = currentShuffleState;
-    const isShuffling = false; // Hardcoded to false since shuffle is disabled
     const ytmRepeatMode = s.player?.queue?.repeatMode ?? 0;
     currentRepeatMode = ytmRepeatMode;
     
-    // Update current volume for wheel control
-    if (s.player?.volume !== undefined) {
-        currentVolume = s.player.volume;
+    // Keep wheel controls aligned with YTMDesktop instead of assuming a startup volume.
+    const reportedVolume = typeof s.player?.volume === 'string'
+        ? Number(s.player.volume)
+        : s.player?.volume;
+    if (typeof reportedVolume === 'number' && Number.isFinite(reportedVolume)) {
+        const normalizedVolume = Math.max(0, Math.min(100, reportedVolume));
+        if (awaitingInitialVolume) {
+            awaitingInitialVolume = false;
+            if (lastKnownVolume !== null && lastKnownVolume !== normalizedVolume) {
+                currentVolume = lastKnownVolume;
+                pendingVolumeTarget = lastKnownVolume;
+                pendingVolumeSince = Date.now();
+                void executeControl('setVolume', lastKnownVolume).then((succeeded) => {
+                    if (!succeeded && currentVolume === lastKnownVolume) {
+                        currentVolume = normalizedVolume;
+                        pendingVolumeTarget = null;
+                        lastKnownVolume = normalizedVolume;
+                        saveVolume(normalizedVolume);
+                    }
+                });
+            } else {
+                currentVolume = normalizedVolume;
+                lastKnownVolume = normalizedVolume;
+                saveVolume(normalizedVolume);
+            }
+        } else if (
+            pendingVolumeTarget !== null &&
+            normalizedVolume !== pendingVolumeTarget &&
+            Date.now() - pendingVolumeSince < 2000
+        ) {
+            console.log(`[Volume] Ignoring stale YTMDesktop volume ${normalizedVolume}; waiting for ${pendingVolumeTarget}`);
+        } else {
+            currentVolume = normalizedVolume;
+            if (pendingVolumeTarget === normalizedVolume) pendingVolumeTarget = null;
+            lastKnownVolume = normalizedVolume;
+            saveVolume(normalizedVolume);
+        }
     }
     
     const currentTrack = `${queueItem.title || s.video?.title || 'No Track'} - ${queueItem.author || s.video?.author || 'No Artist'}`;
@@ -508,7 +595,6 @@ const handleYTMStateUpdate = (state: unknown): void => {
         
         const stateUpdate = {
             isPlaying: s.player?.trackState === 1,
-            isShuffling: isShuffling,
             isRepeating: ytmRepeatMode > 0,
             repeatMode: ytmRepeatMode,
             title: queueItem.title || s.video?.title || 'No Track',
@@ -532,7 +618,6 @@ const handleYTMStateUpdate = (state: unknown): void => {
         // Fallback state update without artwork on processing error
         const stateUpdate = {
             isPlaying: s.player?.trackState === 1,
-            isShuffling: isShuffling,
             isRepeating: ytmRepeatMode > 0,
             repeatMode: ytmRepeatMode,
             title: queueItem.title || s.video?.title || 'No Track',
@@ -574,7 +659,7 @@ const getYTMAuthToken = async (): Promise<string> => {
     const codeRes = await axios.post(`http://${ytmHost}:${ytmPort}/api/v1/auth/requestcode`, {
         appId: APP_ID,
         appName: APP_NAME,
-        appVersion: '1.0.0',
+        appVersion: '1.1.0',
     });
     const code = codeRes.data.code;
     console.log(`YTMDesktop Auth Code: ${code}`);
@@ -642,6 +727,9 @@ const connectToYTMDesktopSocketIO = async (): Promise<void> => {
                 transports: ['websocket'],
                 auth: { token },
             });
+            currentVolume = null;
+            awaitingInitialVolume = true;
+            pendingVolumeTarget = null;
             
             ytmSocket.on('connect', () => {
                 console.log('Connected to YTMDesktop.');
@@ -651,6 +739,9 @@ const connectToYTMDesktopSocketIO = async (): Promise<void> => {
             
             ytmSocket.on('disconnect', () => {
                 console.warn('Disconnected from YTMDesktop.');
+                currentVolume = null;
+                awaitingInitialVolume = true;
+                pendingVolumeTarget = null;
             });
             
             ytmSocket.on('connect_error', async (err: Error) => {
@@ -712,26 +803,16 @@ DeskThing.on(DESKTHING_EVENTS.SETTINGS, (settings) => {
                 accentColor
             }
         });
+        settingsInitialized = true;
     }
 });
 
 /** Initialize DeskThing app and establish YTMDesktop connection */
 const startup = async (): Promise<void> => {
     console.log('YTMThing Server starting...');
-    await setupSettings();
     setupClientListeners();
+    await setupSettings();
     await connectToYTMDesktopSocketIO();
-    
-    // Send initial color settings to client
-    DeskThing.send({
-        type: 'YTM_COLOR_SETTINGS',
-        payload: {
-            backgroundColor,
-            textColor,
-            buttonColor,
-            accentColor
-        }
-    });
     
     console.log('YTMThing Server ready.');
 }

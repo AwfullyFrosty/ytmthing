@@ -96,7 +96,7 @@ THIS IS STILL IN EARLY DEVELOPMENT
 
 ## Technical Details
 ### **Shuffle State Management**
-Since YTMDesktop's API doesn't reliably expose shuffle state, YTMThing doesn't have a suffle feature. In future YTMDesktop's API updates state will be tracked and will update when thats available.
+YTMDesktop's Companion API documents the `shuffle` command, which shuffles the current queue. YTMDesktop does not expose a reliable active shuffle-state field in the documented state response, so YTMThing provides a one-shot **Shuffle Current Queue** action rather than an on/off toggle.
 
 ## License
 

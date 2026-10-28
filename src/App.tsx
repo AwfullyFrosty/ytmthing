@@ -1,11 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { DeskThing } from '@deskthing/client';
-import { /* Shuffle, */ Repeat, Repeat1, SkipBack, SkipForward, Play, Pause, Music, Heart, ThumbsDown, Volume2, VolumeX } from 'lucide-react';
+import { Shuffle, Repeat, Repeat1, SkipBack, SkipForward, Play, Pause, Music, Heart, ThumbsDown, Volume2, VolumeX } from 'lucide-react';
 
 interface YTMState {
     isPlaying: boolean;
-    // NOTE: Shuffle functionality temporarily disabled - YTM API doesn't properly support shuffle states currently but is in the works
-    // isShuffling: boolean;
     isRepeating: boolean;
     repeatMode: number; // 0 = off, 1 = all, 2 = one
     title: string;
@@ -61,8 +59,6 @@ const App: React.FC = () => {
         let unsubscribeError = () => {};
         let unsubscribeState = () => {};
         let unsubscribeVolumeUpdate = () => {};
-        // NOTE: Shuffle functionality temporarily disabled - YTM API doesn't properly support shuffle states currently but is in the works
-        // let unsubscribeShuffleUpdate = () => {};
         let unsubscribeColorSettings = () => {};
         let unsubscribeAuthStatus = () => {};
         
@@ -85,13 +81,6 @@ const App: React.FC = () => {
                 }
             });
             
-            // NOTE: Shuffle functionality temporarily disabled - YTM API doesn't properly support shuffle states currently but is in the works
-            // unsubscribeShuffleUpdate = DeskThing.on('YTM_SHUFFLE_STATE_UPDATE', (data: { type: string; payload: unknown }) => {
-            //     const payload = data.payload as { isShuffling: boolean };
-            //     if (payload && typeof payload.isShuffling === 'boolean') {
-            //         setYTMState(prev => prev ? { ...prev, isShuffling: payload.isShuffling } : null);
-            //     }
-            // });
             
             unsubscribeColorSettings = DeskThing.on('YTM_COLOR_SETTINGS', (data: { type: string; payload: unknown }) => {
                 const payload = data.payload as ColorSettings;
@@ -120,9 +109,8 @@ const App: React.FC = () => {
             });
         }
         
-        // Request current color settings and auth status from server on mount
-        // This ensures we get the latest settings even if the server 
-        // has already sent them before this component mounted
+        // Settings are sent by DeskThing after its persisted values are loaded.
+        // The server defers this request until its persisted settings are ready.
         if (typeof send === 'function') {
             send({ type: 'YTM_REQUEST_COLOR_SETTINGS' });
             send({ type: 'YTM_REQUEST_AUTH_STATUS' });
@@ -132,8 +120,6 @@ const App: React.FC = () => {
             unsubscribeError();
             unsubscribeState();
             unsubscribeVolumeUpdate();
-            // NOTE: Shuffle functionality temporarily disabled - YTM API doesn't properly support shuffle states currently but is in the works
-            // unsubscribeShuffleUpdate();
             unsubscribeColorSettings();
             unsubscribeAuthStatus();
         };
@@ -381,17 +367,6 @@ const App: React.FC = () => {
                     
                     {/* Status Indicators */}
                     <div className="flex items-center gap-3 mb-6">
-                        {/* NOTE: Shuffle functionality temporarily disabled - YTM API doesn't properly support shuffle states currently but is in the works */}
-                        {/* <div 
-                            className="flex items-center gap-2 text-sm transition-all duration-200"
-                            style={{ 
-                                color: ytmState?.isShuffling ? colorSettings.accentColor : colorSettings.textColor,
-                                opacity: ytmState?.isShuffling ? 1 : 0.5
-                            }}
-                        >
-                            <Shuffle size={16} />
-                            <span>Shuffle</span>
-                        </div> */}
                         <div 
                             className="flex items-center gap-2 text-sm transition-all duration-200"
                             style={{ 
@@ -497,7 +472,25 @@ const App: React.FC = () => {
 
                 {/* Control Buttons */}
                 <div className="flex items-center justify-between mb-4">
-                    {/* Mute/Unmute Button (replaces shuffle) */}
+                    <button 
+                        onClick={control('YTM_SHUFFLE')} 
+                        className="p-3 rounded-full transition-all duration-200 shadow-lg"
+                        style={{
+                            backgroundColor: colorSettings.buttonColor,
+                            color: colorSettings.textColor
+                        }}
+                        title="Shuffle Current Queue"
+                        onMouseEnter={(e) => {
+                            e.currentTarget.style.filter = 'brightness(1.2)';
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.filter = 'brightness(1)';
+                        }}
+                    >
+                        <Shuffle size={20} />
+                    </button>
+
+                    {/* Mute/Unmute Button */}
                     <button 
                         onClick={control(ytmState?.muted ? 'YTM_UNMUTE' : 'YTM_MUTE')} 
                         className="p-3 rounded-full transition-all duration-200 shadow-lg"
